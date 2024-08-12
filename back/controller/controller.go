@@ -3,161 +3,260 @@ package controller
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/dekopon21020014/anonymize-mfer/mfer"
-	"github.com/dekopon21020014/anonymize-mfer/xml"
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/shikidalab/anonymize-ecg/mfer"
+	"github.com/shikidalab/anonymize-ecg/model"
+	"github.com/shikidalab/anonymize-ecg/xml"
 )
 
-func GetRouter() *gin.Engine {
-	router := gin.Default()
-
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"}, // フロントエンドのオリジン
-		AllowMethods:     []string{"GET", "POST"},
-		AllowHeaders:     []string{"Origin", "Content-Type"},
-		AllowCredentials: true,
-	}))
-
-	router.GET("/", getTop)
-	router.POST("/", anonymizeMfer)
-
-	return router
-}
-
-func getTop(c *gin.Context) {
+func GetTop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Welcome to LP"})
 }
 
-func anonymizeMfer(c *gin.Context) {
-	// フロントのフォームから送信されたデータをすべて取得
-	form, err := c.MultipartForm()
-	if err != nil {
-		c.String(http.StatusBadRequest, fmt.Sprintf("get form err: %s", err.Error()))
+const (
+	passwordMismatchErr   = "passwords do not match"
+	noFilesFoundErr       = "no files found"
+	fileNameFormatErr     = "file name format is incorrect"
+	zipCreationErr        = "failed to create ZIP file"
+	fileWriteErr          = "failed to write file"
+	anonymizedZipFileName = "anonymized-files.zip"
+	contentTypeZip        = "application/zip"
+	contentDispositionFmt = "attachment; filename=%s"
+)
+
+func AnonymizeECG(c *gin.Context) {
+	//return func(c *gin.Context) {
+	if err := validatePasswords(c); err != nil {
+		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
 
+	files, err := getFilesFromForm(c)
+	if err != nil {
+		c.String(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	anonymizedFiles, err := processFiles(files)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	zipBuffer, err := createZipFile(anonymizedFiles)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	sendZipResponse(c, zipBuffer)
+}
+
+//}
+
+func validatePasswords(c *gin.Context) error {
 	password := c.PostForm("password")
 	passwordConfirmation := c.PostForm("passwordConfirmation")
 
-	// パスワードが送られてきているか
 	if password == "" || passwordConfirmation == "" {
-		c.String(http.StatusBadRequest, "Both password and password confirmation are required")
-		return
+		return fmt.Errorf("both password and password confirmation are required")
 	}
 
-	// パスワードとパスワードの確認が一致しているか
 	if password != passwordConfirmation {
-		c.String(http.StatusBadRequest, "Passwords do not match")
-		return
+		return fmt.Errorf(passwordMismatchErr)
 	}
 
-	// formのなかのファイルを取得
+	return nil
+}
+
+func getFilesFromForm(c *gin.Context) (map[string][]*multipart.FileHeader, error) {
+	form, err := c.MultipartForm()
+	if err != nil {
+		return nil, fmt.Errorf("get form err: %s", err.Error())
+	}
+
 	files := form.File
 	if len(files) == 0 {
-		c.String(http.StatusBadRequest, "No files found")
-		return
+		return nil, fmt.Errorf(noFilesFoundErr)
 	}
 
-	// 匿名化されたファイルを保存するための構造体のスライス
-	// なのでスライスの各要素は構造体です
-	anonymizedFiles := []struct {
+	return files, nil
+}
+
+func processFiles(files map[string][]*multipart.FileHeader) ([]struct {
+	Name    string
+	Content []byte
+}, error) {
+	var anonymizedFiles []struct {
 		Name    string
 		Content []byte
-	}{}
-	anonymizedPrefix := "anonymized-" // 匿名化したときのファイル名のプレフィックス
+	}
 
 	for _, fileHeaders := range files {
 		for _, fileHeader := range fileHeaders {
-			filename := fileHeader.Filename
-			var isMfer, isXML bool
-			// mwfじゃない，または，MWFじゃない時は処理しない
-			if strings.HasSuffix(filename, ".mwf") || strings.HasSuffix(filename, ".MWF") {
-				isMfer = true
-			} else if strings.HasSuffix(filename, ".xml") || strings.HasSuffix(filename, ".XML") {
-				isXML = true
-			} else { // mferでもxmlでもないときは処理しない
-				continue
-			}
-
-			// ファイルオープン
-			file, err := fileHeader.Open()
+			anonymizedFile, err := processFile(fileHeader)
 			if err != nil {
-				c.String(http.StatusInternalServerError, fmt.Sprintf("open file err: %s", err.Error()))
-				return
+				return nil, err
 			}
-			defer file.Close()
-			fmt.Println(fileHeader.Filename)
-
-			// ファイルオブジェクトをバイト列として読み出し
-			data, err := io.ReadAll(file)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
+			if anonymizedFile != nil {
+				anonymizedFiles = append(anonymizedFiles, *anonymizedFile)
 			}
-
-			var anonymizedData []byte
-			// 匿名化処理
-			if isMfer {
-				ad, err := mfer.Anonymize(data)
-				if err != nil {
-					fmt.Println(err)
-					c.String(http.StatusInternalServerError, fmt.Sprintf("process file err: %s", err.Error()))
-					return
-				}
-				anonymizedData = ad
-			} else if isXML {
-				ad, err := xml.Anonymize(data)
-				if err != nil {
-					fmt.Println(err)
-					c.String(http.StatusInternalServerError, fmt.Sprintf("process file err: %s", err.Error()))
-					return
-				}
-				anonymizedData = ad
-			}
-
-			// 一旦変数(構造体)にする．そのあとすぐにスライスにappendする
-			tmpAnonymizedFile := struct {
-				Name    string
-				Content []byte
-			}{
-				Name:    anonymizedPrefix + fileHeader.Filename,
-				Content: anonymizedData,
-			}
-
-			// 匿名化されたデータをスライスに追加
-			anonymizedFiles = append(anonymizedFiles, tmpAnonymizedFile)
 		}
 	}
 
-	// ZIPファイルを作成するためのバッファ
+	return anonymizedFiles, nil
+}
+
+func processFile(fileHeader *multipart.FileHeader) (*struct {
+	Name    string
+	Content []byte
+}, error) {
+	filename := fileHeader.Filename
+	fileType, err := getFileType(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	if fileType == "" {
+		return nil, nil // Skip non-MWF and non-XML files
+	}
+
+	patientID, date, err := parseFileName(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := readFileContent(fileHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	anonymizedData, err := anonymizeData(data, fileType)
+	if err != nil {
+		return nil, fmt.Errorf("process file err: %s", err.Error())
+	}
+
+	hashedID, err := hashPatientID(patientID)
+	if err != nil {
+		return nil, fmt.Errorf("hash patient ID err: %s", err.Error())
+	}
+
+	anonymizedFileName := fmt.Sprintf("%s_%s%s", hashedID, date, fileType)
+
+	return &struct {
+		Name    string
+		Content []byte
+	}{
+		Name:    anonymizedFileName,
+		Content: anonymizedData,
+	}, nil
+}
+
+func getFileType(filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".mwf":
+		return ".mwf", nil
+	case ".xml":
+		return ".xml", nil
+	default:
+		return "", nil
+	}
+}
+
+func parseFileName(filename string) (string, string, error) {
+	name := strings.TrimSuffix(filename, filepath.Ext(filename))
+	parts := strings.Split(name, "_")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf(fileNameFormatErr)
+	}
+	return parts[0], parts[1], nil
+}
+
+func readFileContent(fileHeader *multipart.FileHeader) ([]byte, error) {
+	file, err := fileHeader.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open file err: %s", err.Error())
+	}
+	defer file.Close()
+
+	return io.ReadAll(file)
+}
+
+func anonymizeData(data []byte, fileType string) ([]byte, error) {
+	switch fileType {
+	case ".mwf":
+		return mfer.Anonymize(data)
+	case ".xml":
+		return xml.Anonymize(data)
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s", fileType)
+	}
+}
+
+func hashPatientID(patientID string) (string, error) {
+	db, err := model.GetDB(os.Getenv("DSN"))
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+
+	var hashedID string
+	err = db.QueryRow("SELECT hashed_id FROM patients WHERE id = ?", patientID).Scan(&hashedID)
+	if err == nil {
+		// 既存のハッシュIDが見つかった場合、それを返す
+		return hashedID, nil
+	} else if err != sql.ErrNoRows {
+		// sql.ErrNoRows 以外のエラーの場合、エラーを返す
+		return "", err
+	}
+
+	// 新しいハッシュIDを生成
+	newHashedID := sha256.Sum256([]byte(patientID))
+	hashedIDStr := hex.EncodeToString(newHashedID[:])
+
+	// 新しいハッシュIDをデータベースに保存
+	_, err = db.Exec("INSERT INTO patients (id, hashed_id) VALUES (?, ?)", patientID, hashedIDStr)
+	if err != nil {
+		return "", fmt.Errorf("failed to save hashed ID: %v", err)
+	}
+	return hashedIDStr, nil
+}
+
+func createZipFile(anonymizedFiles []struct {
+	Name    string
+	Content []byte
+}) (*bytes.Buffer, error) {
 	bufForResponse := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(bufForResponse)
+	defer zipWriter.Close()
 
-	// 各ファイルをZIPに追加
 	for _, file := range anonymizedFiles {
 		zipFile, err := zipWriter.Create(file.Name)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ZIPファイルの作成に失敗しました"})
-			return
+			return nil, fmt.Errorf("%s: %v", zipCreationErr, err)
 		}
 		_, err = zipFile.Write(file.Content)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ファイルの書き込みに失敗しました"})
-			return
+			return nil, fmt.Errorf("%s: %v", fileWriteErr, err)
 		}
 	}
 
-	// ZIPファイルの書き込みを閉じる
-	zipWriter.Close()
+	return bufForResponse, nil
+}
 
-	// クライアントにZIPファイルを返却
-	c.Header("Content-Disposition", "attachment; filename=anonymized-files.zip")
-	c.Header("Content-Type", "application/zip")
-	c.Data(http.StatusOK, "application/zip", bufForResponse.Bytes())
+func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer) {
+	c.Header("Content-Disposition", fmt.Sprintf(contentDispositionFmt, anonymizedZipFileName))
+	c.Header("Content-Type", contentTypeZip)
+	c.Data(http.StatusOK, contentTypeZip, zipBuffer.Bytes())
 }
