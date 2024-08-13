@@ -27,7 +27,7 @@ const ExportCSV = () => {
     return (
         <Box sx={{ mt: 4, textAlign: 'center' }}>
             <Button variant="contained" color="primary" onClick={handleExport}>
-                IDと匿名化IDの対応表をダウンロード
+                患者IDと匿名化IDの対応表をダウンロード
             </Button>
         </Box>
     );
