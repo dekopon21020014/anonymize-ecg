@@ -36,8 +36,8 @@ const (
 )
 
 func AnonymizeECG(c *gin.Context) {
-	//return func(c *gin.Context) {
-	if err := validatePasswords(c); err != nil {
+	password, err := validatePasswords(c)
+	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
@@ -48,7 +48,7 @@ func AnonymizeECG(c *gin.Context) {
 		return
 	}
 
-	anonymizedFiles, err := processFiles(files)
+	anonymizedFiles, err := processFiles(files, password)
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return
@@ -62,21 +62,19 @@ func AnonymizeECG(c *gin.Context) {
 	sendZipResponse(c, zipBuffer)
 }
 
-//}
-
-func validatePasswords(c *gin.Context) error {
+func validatePasswords(c *gin.Context) (string, error) {
 	password := c.PostForm("password")
 	passwordConfirmation := c.PostForm("passwordConfirmation")
 
 	if password == "" || passwordConfirmation == "" {
-		return fmt.Errorf("both password and password confirmation are required")
+		return "", fmt.Errorf("both password and password confirmation are required")
 	}
 
 	if password != passwordConfirmation {
-		return fmt.Errorf(passwordMismatchErr)
+		return "", fmt.Errorf(passwordMismatchErr)
 	}
 
-	return nil
+	return password, nil
 }
 
 func getFilesFromForm(c *gin.Context) (map[string][]*multipart.FileHeader, error) {
@@ -93,7 +91,7 @@ func getFilesFromForm(c *gin.Context) (map[string][]*multipart.FileHeader, error
 	return files, nil
 }
 
-func processFiles(files map[string][]*multipart.FileHeader) ([]struct {
+func processFiles(files map[string][]*multipart.FileHeader, password string) ([]struct {
 	Name    string
 	Content []byte
 }, error) {
@@ -104,7 +102,7 @@ func processFiles(files map[string][]*multipart.FileHeader) ([]struct {
 
 	for _, fileHeaders := range files {
 		for _, fileHeader := range fileHeaders {
-			anonymizedFile, err := processFile(fileHeader)
+			anonymizedFile, err := processFile(fileHeader, password)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +115,7 @@ func processFiles(files map[string][]*multipart.FileHeader) ([]struct {
 	return anonymizedFiles, nil
 }
 
-func processFile(fileHeader *multipart.FileHeader) (*struct {
+func processFile(fileHeader *multipart.FileHeader, password string) (*struct {
 	Name    string
 	Content []byte
 }, error) {
@@ -146,7 +144,7 @@ func processFile(fileHeader *multipart.FileHeader) (*struct {
 		return nil, fmt.Errorf("process file err: %s", err.Error())
 	}
 
-	hashedID, err := hashPatientID(patientID)
+	hashedID, err := hashPatientID(patientID + password)
 	if err != nil {
 		return nil, fmt.Errorf("hash patient ID err: %s", err.Error())
 	}

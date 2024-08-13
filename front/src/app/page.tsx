@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Container, Box, Typography, List, ListItem } from '@mui/material';
-import Form from '../components/Form';
+//import React, { useState } from 'react';
+import { Container, Box, Typography, Button } from '@mui/material';
+import Form from '@/components/Form';
+import ExoprtCSV from '@/components/ExportCSV';
 
 const TopPage = () => {    
     return (
@@ -27,6 +28,7 @@ const TopPage = () => {
                 <Typography variant="h5">4.zipファイルをUSBに保存してください</Typography>     
             </Box>
             <Form/>{/* Formは自作のコンポーネント*/}
+            <ExoprtCSV/>
         </Container>
     );
 };
