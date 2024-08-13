@@ -1,10 +1,12 @@
 package model
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/csv"
-	"log"
-	"os"
+	"fmt"
+	"io"
+	"time"
 )
 
 func SetupDB(dsn string) error {
@@ -37,43 +39,60 @@ func GetDB(dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-// ExportPatientsToCSV exports the patients table to a CSV file
-func ExportPatientsToCSV(db *sql.DB, filename string) error {
+// FileStruct represents an in-memory file
+type FileStruct struct {
+	Name    string
+	Content []byte
+}
+
+// ExportPatientsToCSV exports the patients table to an in-memory CSV file
+func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
 	rows, err := db.Query("SELECT id, hashed_id FROM patients")
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("database query failed: %v", err)
 	}
 	defer rows.Close()
 
-	file, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
 
 	// Write header
 	if err := writer.Write([]string{"id", "hashed_id"}); err != nil {
-		return err
+		return nil, fmt.Errorf("failed to write CSV header: %v", err)
 	}
 
 	// Write rows
 	for rows.Next() {
 		var id, hashedID string
 		if err := rows.Scan(&id, &hashedID); err != nil {
-			return err
+			return nil, fmt.Errorf("failed to scan row: %v", err)
 		}
 		if err := writer.Write([]string{id, hashedID}); err != nil {
-			return err
+			return nil, fmt.Errorf("failed to write CSV row: %v", err)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, fmt.Errorf("error during row iteration: %v", err)
 	}
 
-	log.Println("CSV export successful")
-	return nil
+	writer.Flush()
+
+	if err := writer.Error(); err != nil {
+		return nil, fmt.Errorf("error flushing CSV writer: %v", err)
+	}
+
+	// Generate a unique filename
+	filename := fmt.Sprintf("%s.csv", time.Now().Format("20060102_150405"))
+
+	return &FileStruct{
+		Name:    filename,
+		Content: buf.Bytes(),
+	}, nil
+}
+
+// Helper function to write the FileStruct to an io.Writer
+func (f *FileStruct) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(f.Content)
+	return int64(n), err
 }
