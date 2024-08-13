@@ -14,5 +14,7 @@
 ```bash
 git clone https://github.com/shikidalab/anonymize-ecg.git
 cd anonymize-ecg
-docker compose run -w /app --rm front npm install
+mv .env.sample .env # DOWNLOAD_DIRに，csvをダウンロードしたいパス(ローカル)を指定する
+mv ./back/.env.sample ./back/.env # DSNと，csvのダウンロード先のパス(コンテナ内)を指定する
+docker compose run -w /app --rm front npm install 
 docker compose up
