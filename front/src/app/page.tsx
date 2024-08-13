@@ -20,7 +20,7 @@ const TopPage = () => {
                 >
                     操作手順
                 </Typography>
-                <Typography variant="h5"> 1.パスワード入力してください．</Typography>
+                <Typography variant="h5"> 1.パスワードを入力してください．</Typography>
                 <Typography variant="h5"> 2.データの含まれるフォルダを選択してください．</Typography>
                 関係ないファイルやフォルダが含まれていても構いません．<br  />それらは匿名化処理の際に除外されます<div className=""></div>
                 <Typography variant="h5"> 3.アップロードしてください．　</Typography>
