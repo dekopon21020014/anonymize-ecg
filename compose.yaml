@@ -21,6 +21,7 @@ services:
     tty: true
     volumes:
       - ./back:/app
+      - ${DOWNLOAD_DIR}:/sqlite
     command: sh -c "go run main.go"
     ports:
       - "8080:8080"
