@@ -144,7 +144,7 @@ func processFile(fileHeader *multipart.FileHeader, password string) (*struct {
 		return nil, fmt.Errorf("process file err: %s", err.Error())
 	}
 
-	hashedID, err := hashPatientID(patientID + password)
+	hashedID, err := hashPatientID(patientID, password)
 	if err != nil {
 		return nil, fmt.Errorf("hash patient ID err: %s", err.Error())
 	}
@@ -202,7 +202,7 @@ func anonymizeData(data []byte, fileType string) ([]byte, error) {
 	}
 }
 
-func hashPatientID(patientID string) (string, error) {
+func hashPatientID(patientID, password string) (string, error) {
 	db, err := model.GetDB(os.Getenv("DSN"))
 	if err != nil {
 		return "", err
@@ -220,8 +220,9 @@ func hashPatientID(patientID string) (string, error) {
 	}
 
 	// 新しいハッシュIDを生成
-	newHashedID := sha256.Sum256([]byte(patientID))
+	newHashedID := sha256.Sum256([]byte(patientID + password))
 	hashedIDStr := hex.EncodeToString(newHashedID[:])
+	fmt.Printf("%s, %s, %s\n", patientID, password, hashedIDStr)
 
 	// 新しいハッシュIDをデータベースに保存
 	_, err = db.Exec("INSERT INTO patients (id, hashed_id) VALUES (?, ?)", patientID, hashedIDStr)
