@@ -9,6 +9,7 @@ COPY /front/package.json /front/package-lock.json ./
 
 # ソースコードをコピー
 COPY /front ./
+COPY /.env /.env
 
 # 依存関係をインストール
 RUN npm install 

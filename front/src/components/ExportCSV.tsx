@@ -5,7 +5,8 @@ import { Box, Button } from '@mui/material';
 const ExportCSV = () => {
     const handleExport = async () => {
         try {
-            const response = await fetch('http://localhost:8080/download-csv');
+            const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
+            const response = await fetch(`${apiUrl}/download-csv`);
             if (response.ok) {
                 // レスポンスを処理する（例: CSVファイルのダウンロード）
                 const blob = await response.blob();

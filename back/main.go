@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -45,8 +46,9 @@ func main() {
 
 	// httpサーバのセットアップ
 	router := gin.Default()
+	fmt.Println("origin = ", os.Getenv("FRONT_ORIGIN"))
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"}, // フロントエンドのオリジン
+		AllowOrigins:     []string{os.Getenv("FRONT_ORIGIN")}, // フロントエンドのオリジン
 		AllowMethods:     []string{"GET", "POST"},
 		AllowHeaders:     []string{"Origin", "Content-Type"},
 		AllowCredentials: true,
