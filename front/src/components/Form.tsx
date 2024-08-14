@@ -48,7 +48,9 @@ const Form = () => {
     formData.append('passwordConfirmation', data.passwordConfirmation);
 
     try {
-      const response = await fetch('http://localhost:8080/', {
+      const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
+      console.log(apiUrl)
+      const response = await fetch(`${apiUrl}`, {
         method: 'POST',
         body: formData,
       });
