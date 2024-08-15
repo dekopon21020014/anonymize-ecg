@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"time"
 )
 
 func Anonymize(xmlData []byte) ([]byte, error) {
@@ -47,7 +48,7 @@ func handleStartElement(tok xml.StartElement, encoder *xml.Encoder, inFamily, in
 	case "family":
 		inFamily = true
 	case "birthTime":
-		tok.Attr = removeAttribute(tok.Attr, "value")
+		tok.Attr = removeDayFromBirthDate(tok.Attr)
 	case "patientPatient":
 		inPatientPatient = true
 	case "id":
@@ -83,12 +84,18 @@ func handleCharData(tok xml.CharData, encoder *xml.Encoder, inFamily bool) {
 	encoder.EncodeToken(tok)
 }
 
-func removeAttribute(attrs []xml.Attr, attrName string) []xml.Attr {
+func removeDayFromBirthDate(attrs []xml.Attr) []xml.Attr {
 	var newAttrs []xml.Attr
 	for _, attr := range attrs {
-		if attr.Name.Local != attrName {
-			newAttrs = append(newAttrs, attr)
+		if attr.Name.Local == "value" {
+			birth, err := time.Parse("20060102150405", attr.Value)
+			if err != nil {
+				attr.Value = fmt.Sprintln("Error:", err)
+			} else {
+				attr.Value = fmt.Sprintf("%d/%d", birth.Year(), birth.Month())
+			}
 		}
+		newAttrs = append(newAttrs, attr)
 	}
 	return newAttrs
 }
