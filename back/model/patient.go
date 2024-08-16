@@ -83,7 +83,7 @@ func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
 	}
 
 	// Generate a unique filename
-	filename := fmt.Sprintf("%s.csv", time.Now().Format("20060102_150405"))
+	filename := fmt.Sprintf("%s.csv", time.Now().Format("2006-01-02_15-04-05"))
 
 	return &FileStruct{
 		Name:    filename,

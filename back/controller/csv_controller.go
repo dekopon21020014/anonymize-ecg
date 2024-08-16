@@ -25,6 +25,7 @@ func ExportCSV(c *gin.Context) {
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileStruct.Name))
 	c.Header("Content-Type", "text/csv")
+	c.Header("Access-Control-Expose-Headers", "Content-Disposition")
 	c.Data(http.StatusOK, "text/csv", fileStruct.Content)
 }
 
