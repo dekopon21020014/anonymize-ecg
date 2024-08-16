@@ -57,10 +57,21 @@ const Form = () => {
 
       if (response.ok) {
         const blob = await response.blob();
+        const contentDisposition = response.headers.get('Content-Disposition');
+        console.log("content disposition = ", contentDisposition)
+        let fileName = 'downloaded-file.zip'; // default failename
+        
+        if (contentDisposition && contentDisposition.includes('filename=')) {
+          const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+          if (matches != null && matches[1]) { 
+            fileName = matches[1].replace(/['"]/g, '');
+          }
+        }
+
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'anonymized-files.zip';
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
