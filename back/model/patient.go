@@ -83,7 +83,7 @@ func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
 	}
 
 	// Generate a unique filename
-	filename := fmt.Sprintf("%s.csv", time.Now().Format("20060102_150405"))
+	filename := fmt.Sprintf("%s.csv", time.Now().Format("2006-01-02_15-04-05"))
 
 	return &FileStruct{
 		Name:    filename,
@@ -95,4 +95,30 @@ func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
 func (f *FileStruct) WriteTo(w io.Writer) (int64, error) {
 	n, err := w.Write(f.Content)
 	return int64(n), err
+}
+
+// 指定されたテーブル全てのエントリを削除
+func DeleteAllEntry(db *sql.DB, table string) error {
+	// SQL文を作成
+	query := fmt.Sprintf("DELETE FROM %s", table)
+
+	// トランザクションを開始
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	// SQL文を実行
+	_, err = tx.Exec(query)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// トランザクションをコミット
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
 }

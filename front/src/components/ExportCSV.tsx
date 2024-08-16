@@ -8,15 +8,25 @@ const ExportCSV = () => {
             const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
             const response = await fetch(`${apiUrl}/download-csv`);
             if (response.ok) {
-                // レスポンスを処理する（例: CSVファイルのダウンロード）
                 const blob = await response.blob();
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let fileName = 'Anonymized-ID.csv'; // default failename
+
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                    if (matches != null && matches[1]) { 
+                      fileName = matches[1].replace(/['"]/g, '');
+                    }
+                  }
+
                 const url = window.URL.createObjectURL(new Blob([blob]));
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', 'Anonymized-ID.csv'); // ダウンロードファイル名
-                document.body.appendChild(link);
-                link.click();
-                //link.parentNode.removeChild(link);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
             } else {
                 console.error('Failed to export CSV');
             }
