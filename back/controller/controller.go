@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shikidalab/anonymize-ecg/mfer"
@@ -25,12 +26,12 @@ func GetTop(c *gin.Context) {
 }
 
 const (
-	passwordMismatchErr   = "passwords do not match"
-	noFilesFoundErr       = "no files found"
-	fileNameFormatErr     = "file name format is incorrect"
-	zipCreationErr        = "failed to create ZIP file"
-	fileWriteErr          = "failed to write file"
-	anonymizedZipFileName = "anonymized-files.zip"
+	passwordMismatchErr = "passwords do not match"
+	noFilesFoundErr     = "no files found"
+	fileNameFormatErr   = "file name format is incorrect"
+	zipCreationErr      = "failed to create ZIP file"
+	fileWriteErr        = "failed to write file"
+	//anonymizedZipFileName = "hoge.zip"
 	contentTypeZip        = "application/zip"
 	contentDispositionFmt = "attachment; filename=%s"
 )
@@ -255,7 +256,9 @@ func createZipFile(anonymizedFiles []struct {
 }
 
 func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer) {
-	c.Header("Content-Disposition", fmt.Sprintf(contentDispositionFmt, anonymizedZipFileName))
+	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().Format("2006-01-02_15-04-05"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", anonymizedZipFileName))
 	c.Header("Content-Type", contentTypeZip)
+	c.Header("Access-Control-Expose-Headers", "Content-Disposition")
 	c.Data(http.StatusOK, contentTypeZip, zipBuffer.Bytes())
 }
