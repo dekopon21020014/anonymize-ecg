@@ -23,6 +23,12 @@ func ExportCSV(c *gin.Context) {
 		return
 	}
 
+	err = model.DeleteAllEntry(db, "patients")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileStruct.Name))
 	c.Header("Content-Type", "text/csv")
 	c.Header("Access-Control-Expose-Headers", "Content-Disposition")
@@ -62,7 +68,7 @@ func SaveCSVFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %v", filePath, err)
 	}
-	defer file.Close() // 閉じる処理を忘れずに追加
+	defer file.Close()
 
 	// ファイルにデータを書き込む
 	_, err = file.Write(csv.Content)
