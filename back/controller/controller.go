@@ -25,12 +25,11 @@ func GetTop(c *gin.Context) {
 }
 
 const (
-	passwordMismatchErr = "passwords do not match"
-	noFilesFoundErr     = "no files found"
-	fileNameFormatErr   = "file name format is incorrect"
-	zipCreationErr      = "failed to create ZIP file"
-	fileWriteErr        = "failed to write file"
-	//anonymizedZipFileName = "hoge.zip"
+	passwordMismatchErr   = "passwords do not match"
+	noFilesFoundErr       = "no files found"
+	fileNameFormatErr     = "file name format is incorrect"
+	zipCreationErr        = "failed to create ZIP file"
+	fileWriteErr          = "failed to write file"
 	contentTypeZip        = "application/zip"
 	contentDispositionFmt = "attachment; filename=%s"
 )
@@ -55,7 +54,6 @@ func AnonymizeECG(c *gin.Context) {
 
 	anonymizedFiles, err := processFiles(files, password)
 	if err != nil {
-		fmt.Println("error during anonymized files")
 		c.String(http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -146,7 +144,6 @@ func processFiles(files []File, password string) ([]File, error) {
 	for _, file := range files {
 		anonymizedFile, err := processFile(file, password)
 		if err != nil {
-			fmt.Println("error!!!!!!: ", err.Error())
 			return nil, err
 		}
 		if anonymizedFile.Content != nil {

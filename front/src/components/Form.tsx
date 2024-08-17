@@ -56,7 +56,6 @@ const Form = () => {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
-      console.log(apiUrl)
       const response = await fetch(`${apiUrl}`, {
         method: 'POST',
         body: formData,
