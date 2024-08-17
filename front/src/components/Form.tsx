@@ -5,12 +5,12 @@ import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { 
   Button,
-  Box,
   TextField,
   Typography,  
   Paper,
   Stack,  
 } from '@mui/material';
+import JSZip from "jszip";
 
 type FormValuesType = {
   password: string;
@@ -38,11 +38,18 @@ const Form = () => {
   const handleFormSubmit = async (data: FormValuesType) => {
     if (files.length === 0) return;
     setUploading(true);
+    
+    const zip = new JSZip();
+    // Add files to the zip archive
+    files.forEach((file, index) => {
+      zip.file(`${file.name}`, file);
+    });
+
+    // Generate the zip file
+    const zipBlob = await zip.generateAsync({ type: "blob" });
 
     const formData = new FormData();
-    files.forEach((file, index) => {
-      formData.append(`file${index}`, file);
-    });    
+    formData.append("zipfile", zipBlob, "files.zip"); 
 
     formData.append('password', data.password);
     formData.append('passwordConfirmation', data.passwordConfirmation);
