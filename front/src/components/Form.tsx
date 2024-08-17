@@ -136,12 +136,7 @@ const Form = () => {
           <Button variant="outlined" component="span" sx={{ padding: '10px 20px', borderColor: '#1976d2', color: '#1976d2' }}>
             フォルダを選択
           </Button>
-        </label>
-        {files.length > 0 && (
-          <Typography variant="body1" sx={{ mt: 2 }}>
-            Selected files: {files.map(file => file.name).join(', ')}
-          </Typography>
-        )}
+        </label>        
         <Button 
           onClick={onSubmit(handleFormSubmit)}
           disabled={files.length === 0 || uploading} 
@@ -157,6 +152,26 @@ const Form = () => {
         >
           {uploading ? 'Uploading...' : 'アップロード'}
         </Button>
+        {files.length > 0 && (
+          <>
+            <Typography variant="body1" sx={{ mt: 2 }}>
+              合計ファイル数: {files.length}
+            </Typography>
+
+            <Typography variant="body1" sx={{ mt: 1 }}>
+              拡張子ごとのファイル数:
+            </Typography>
+            <ul>
+              {Object.entries(files.reduce((acc, file) => {
+                const ext = file.name.split('.').pop() || 'unknown';
+                acc[ext] = (acc[ext] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>)).map(([ext, count]) => (
+                <li key={ext}>{ext}: {count}</li>
+              ))}
+            </ul>
+          </>
+        )}
       </form>
     </Paper>
   );
