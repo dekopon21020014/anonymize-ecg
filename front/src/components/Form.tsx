@@ -5,12 +5,12 @@ import { useForm } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import { 
   Button,
-  Box,
   TextField,
   Typography,  
   Paper,
   Stack,  
 } from '@mui/material';
+import JSZip from "jszip";
 
 type FormValuesType = {
   password: string;
@@ -38,18 +38,24 @@ const Form = () => {
   const handleFormSubmit = async (data: FormValuesType) => {
     if (files.length === 0) return;
     setUploading(true);
+    
+    const zip = new JSZip();
+    // Add files to the zip archive
+    files.forEach((file, index) => {
+      zip.file(`${file.name}`, file);
+    });
+
+    // Generate the zip file
+    const zipBlob = await zip.generateAsync({ type: "blob" });
 
     const formData = new FormData();
-    files.forEach((file, index) => {
-      formData.append(`file${index}`, file);
-    });    
+    formData.append("zipfile", zipBlob, "files.zip"); 
 
     formData.append('password', data.password);
     formData.append('passwordConfirmation', data.passwordConfirmation);
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
-      console.log(apiUrl)
       const response = await fetch(`${apiUrl}`, {
         method: 'POST',
         body: formData,
@@ -136,12 +142,7 @@ const Form = () => {
           <Button variant="outlined" component="span" sx={{ padding: '10px 20px', borderColor: '#1976d2', color: '#1976d2' }}>
             フォルダを選択
           </Button>
-        </label>
-        {files.length > 0 && (
-          <Typography variant="body1" sx={{ mt: 2 }}>
-            Selected files: {files.map(file => file.name).join(', ')}
-          </Typography>
-        )}
+        </label>        
         <Button 
           onClick={onSubmit(handleFormSubmit)}
           disabled={files.length === 0 || uploading} 
@@ -157,6 +158,26 @@ const Form = () => {
         >
           {uploading ? 'Uploading...' : 'アップロード'}
         </Button>
+        {files.length > 0 && (
+          <>
+            <Typography variant="body1" sx={{ mt: 2 }}>
+              合計ファイル数: {files.length}
+            </Typography>
+
+            <Typography variant="body1" sx={{ mt: 1 }}>
+              拡張子ごとのファイル数:
+            </Typography>
+            <ul>
+              {Object.entries(files.reduce((acc, file) => {
+                const ext = file.name.split('.').pop() || 'unknown';
+                acc[ext] = (acc[ext] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>)).map(([ext, count]) => (
+                <li key={ext}>{ext}: {count}</li>
+              ))}
+            </ul>
+          </>
+        )}
       </form>
     </Paper>
   );

@@ -39,14 +39,14 @@ func GetDB(dsn string) (*sql.DB, error) {
 	return db, nil
 }
 
-// FileStruct represents an in-memory file
-type FileStruct struct {
+// File represents an in-memory file
+type File struct {
 	Name    string
 	Content []byte
 }
 
 // ExportPatientsToCSV exports the patients table to an in-memory CSV file
-func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
+func ExportPatientsToCSV(db *sql.DB) (*File, error) {
 	rows, err := db.Query("SELECT id, hashed_id FROM patients")
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %v", err)
@@ -85,14 +85,14 @@ func ExportPatientsToCSV(db *sql.DB) (*FileStruct, error) {
 	// Generate a unique filename
 	filename := fmt.Sprintf("%s.csv", time.Now().Format("2006-01-02_15-04-05"))
 
-	return &FileStruct{
+	return &File{
 		Name:    filename,
 		Content: buf.Bytes(),
 	}, nil
 }
 
-// Helper function to write the FileStruct to an io.Writer
-func (f *FileStruct) WriteTo(w io.Writer) (int64, error) {
+// Helper function to write the File to an io.Writer
+func (f *File) WriteTo(w io.Writer) (int64, error) {
 	n, err := w.Write(f.Content)
 	return int64(n), err
 }

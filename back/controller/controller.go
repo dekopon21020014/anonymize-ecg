@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,15 +25,19 @@ func GetTop(c *gin.Context) {
 }
 
 const (
-	passwordMismatchErr = "passwords do not match"
-	noFilesFoundErr     = "no files found"
-	fileNameFormatErr   = "file name format is incorrect"
-	zipCreationErr      = "failed to create ZIP file"
-	fileWriteErr        = "failed to write file"
-	//anonymizedZipFileName = "hoge.zip"
+	passwordMismatchErr   = "passwords do not match"
+	noFilesFoundErr       = "no files found"
+	fileNameFormatErr     = "file name format is incorrect"
+	zipCreationErr        = "failed to create ZIP file"
+	fileWriteErr          = "failed to write file"
 	contentTypeZip        = "application/zip"
 	contentDispositionFmt = "attachment; filename=%s"
 )
+
+type File struct {
+	Name    string
+	Content []byte
+}
 
 func AnonymizeECG(c *gin.Context) {
 	password, err := validatePasswords(c)
@@ -78,84 +81,107 @@ func validatePasswords(c *gin.Context) (string, error) {
 	return password, nil
 }
 
-func getFilesFromForm(c *gin.Context) (map[string][]*multipart.FileHeader, error) {
-	form, err := c.MultipartForm()
+func getFilesFromForm(c *gin.Context) ([]File, error) {
+	// フォームからZIPファイルを取得
+	file, err := c.FormFile("zipfile")
 	if err != nil {
-		return nil, fmt.Errorf("get form err: %s", err.Error())
+		return nil, fmt.Errorf("failed to get uploaded file: %v", err)
 	}
 
-	files := form.File
-	if len(files) == 0 {
-		return nil, fmt.Errorf(noFilesFoundErr)
+	// ZIPファイルを開く
+	srcFile, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open uploaded file: %v", err)
+	}
+	defer srcFile.Close()
+
+	// ZIPファイルの内容をメモリ上に読み込む
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, srcFile); err != nil {
+		return nil, fmt.Errorf("failed to read uploaded file: %v", err)
+	}
+
+	// メモリ上に読み込んだデータをZIPリーダーに渡す
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zip reader: %v", err)
+	}
+
+	// ZIP内のファイルをメモリ上で解凍
+	var files []File
+	for _, f := range zipReader.File {
+		// フォルダはスキップ
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// ファイルを開いて内容を読み込む
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file in zip: %v", err)
+		}
+		defer rc.Close()
+
+		// ファイル内容をメモリに読み込む
+		var fileBuf bytes.Buffer
+		if _, err := io.Copy(&fileBuf, rc); err != nil {
+			return nil, fmt.Errorf("failed to read file in zip: %v", err)
+		}
+
+		// ファイル名をキーとして内容をバイトスライスに保存
+		files = append(files, File{
+			Name:    f.Name,
+			Content: fileBuf.Bytes(),
+		})
 	}
 
 	return files, nil
 }
 
-func processFiles(files map[string][]*multipart.FileHeader, password string) ([]struct {
-	Name    string
-	Content []byte
-}, error) {
-	var anonymizedFiles []struct {
-		Name    string
-		Content []byte
-	}
+func processFiles(files []File, password string) ([]File, error) {
+	var anonymizedFiles []File
 
-	for _, fileHeaders := range files {
-		for _, fileHeader := range fileHeaders {
-			anonymizedFile, err := processFile(fileHeader, password)
-			if err != nil {
-				return nil, err
-			}
-			if anonymizedFile != nil {
-				anonymizedFiles = append(anonymizedFiles, *anonymizedFile)
-			}
+	for _, file := range files {
+		anonymizedFile, err := processFile(file, password)
+		if err != nil {
+			return nil, err
+		}
+		if anonymizedFile.Content != nil {
+			anonymizedFiles = append(anonymizedFiles, anonymizedFile)
 		}
 	}
 
 	return anonymizedFiles, nil
 }
 
-func processFile(fileHeader *multipart.FileHeader, password string) (*struct {
-	Name    string
-	Content []byte
-}, error) {
-	filename := fileHeader.Filename
-	fileType, err := getFileType(filename)
+func processFile(file File, password string) (File, error) {
+	fileType, err := getFileType(file.Name)
 	if err != nil {
-		return nil, err
+		return File{}, err
 	}
 
 	if fileType == "" {
-		return nil, nil // Skip non-MWF and non-XML files
+		return File{}, nil // Skip non-MWF and non-XML files
 	}
 
-	patientID, date, err := parseFileName(filename)
+	patientID, date, err := parseFileName(file.Name)
 	if err != nil {
-		return nil, err
+		return File{}, err
 	}
 
-	data, err := readFileContent(fileHeader)
+	anonymizedData, err := anonymizeData(file.Content, fileType)
 	if err != nil {
-		return nil, err
-	}
-
-	anonymizedData, err := anonymizeData(data, fileType)
-	if err != nil {
-		return nil, fmt.Errorf("process file err: %s", err.Error())
+		return File{}, fmt.Errorf("process file err: %s", err.Error())
 	}
 
 	hashedID, err := hashPatientID(patientID, password)
 	if err != nil {
-		return nil, fmt.Errorf("hash patient ID err: %s", err.Error())
+		return File{}, fmt.Errorf("hash patient ID err: %s", err.Error())
 	}
 
 	anonymizedFileName := fmt.Sprintf("%s_%s%s", hashedID, date, fileType)
 
-	return &struct {
-		Name    string
-		Content []byte
-	}{
+	return File{
 		Name:    anonymizedFileName,
 		Content: anonymizedData,
 	}, nil
@@ -182,17 +208,10 @@ func parseFileName(filename string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func readFileContent(fileHeader *multipart.FileHeader) ([]byte, error) {
-	file, err := fileHeader.Open()
-	if err != nil {
-		return nil, fmt.Errorf("open file err: %s", err.Error())
-	}
-	defer file.Close()
-
-	return io.ReadAll(file)
-}
-
-func anonymizeData(data []byte, fileType string) ([]byte, error) {
+func anonymizeData(
+	data []byte,
+	fileType string,
+) ([]byte, error) {
 	switch fileType {
 	case ".mwf":
 		return mfer.Anonymize(data)
@@ -233,10 +252,7 @@ func hashPatientID(patientID, password string) (string, error) {
 	return hashedIDStr, nil
 }
 
-func createZipFile(anonymizedFiles []struct {
-	Name    string
-	Content []byte
-}) (*bytes.Buffer, error) {
+func createZipFile(anonymizedFiles []File) (*bytes.Buffer, error) {
 	bufForResponse := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(bufForResponse)
 	defer zipWriter.Close()
