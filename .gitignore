@@ -1,9 +1,9 @@
+/back/log
+/sample-data/*
 *.MWF
 *.mwf
 *.XML
 *.xml
-/sample-data/*
-/hoge/*
 *.env
 *.csv
 *.sqlite*

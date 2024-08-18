@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -44,9 +44,33 @@ func main() {
 		return
 	}
 
+	// logディレクトリがない場合は作成
+	if err := os.MkdirAll("log", os.ModePerm); err != nil {
+		log.Fatalf("Failed to create log directory: %v", err)
+	}
+
+	f, err := os.OpenFile("log/server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	// 標準出力とファイルに同時にログを書き込むためのMultiWriterを作成
+	multiWriter := io.MultiWriter(os.Stdout, f)
+
+	// ginのログ出力先をstdoutとserver.logの両方に指定
+	gin.DefaultWriter = multiWriter
+	gin.DefaultErrorWriter = multiWriter
+
+	// 標準のlogパッケージも同じmultiWriterを使用する
+	log.SetOutput(multiWriter)
+
 	// httpサーバのセットアップ
 	router := gin.Default()
-	fmt.Println("origin = ", os.Getenv("FRONT_ORIGIN"))
+
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{os.Getenv("FRONT_ORIGIN")}, // フロントエンドのオリジン
 		AllowMethods:     []string{"GET", "POST"},
