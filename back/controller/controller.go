@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,12 +44,14 @@ func AnonymizeECG(c *gin.Context) {
 	password, err := validatePasswords(c)
 	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
+		log.Printf("an error occured in function validatePassward: %v", err)
 		return
 	}
 
 	files, err := getFilesFromForm(c)
 	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
+		log.Printf("an error occured in function getFilesFromForm: %v", err)
 		return
 	}
 
@@ -242,7 +245,6 @@ func hashPatientID(patientID, password string) (string, error) {
 	// 新しいハッシュIDを生成
 	newHashedID := sha256.Sum256([]byte(patientID + password))
 	hashedIDStr := hex.EncodeToString(newHashedID[:])
-	fmt.Printf("%s, %s, %s\n", patientID, password, hashedIDStr)
 
 	// 新しいハッシュIDをデータベースに保存
 	_, err = db.Exec("INSERT INTO patients (id, hashed_id) VALUES (?, ?)", patientID, hashedIDStr)
