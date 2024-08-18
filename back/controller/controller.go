@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,13 +27,15 @@ func GetTop(c *gin.Context) {
 }
 
 const (
-	passwordMismatchErr   = "passwords do not match"
-	noFilesFoundErr       = "no files found"
-	fileNameFormatErr     = "file name format is incorrect"
-	zipCreationErr        = "failed to create ZIP file"
-	fileWriteErr          = "failed to write file"
 	contentTypeZip        = "application/zip"
 	contentDispositionFmt = "attachment; filename=%s"
+)
+
+var (
+	errPasswordMismatch = errors.New("passwords do not match")
+	errFileNameFormat   = errors.New("file name format is incorrect")
+	errZipCreation      = errors.New("failed to create ZIP file")
+	errFileWrite        = errors.New("failed to write file")
 )
 
 type File struct {
@@ -78,7 +81,7 @@ func validatePasswords(c *gin.Context) (string, error) {
 	}
 
 	if password != passwordConfirmation {
-		return "", fmt.Errorf(passwordMismatchErr)
+		return "", errPasswordMismatch
 	}
 
 	return password, nil
@@ -147,6 +150,9 @@ func processFiles(files []File, password string) ([]File, error) {
 	for _, file := range files {
 		anonymizedFile, err := processFile(file, password)
 		if err != nil {
+			if errors.Is(err, errFileNameFormat) {
+				continue
+			}
 			return nil, err
 		}
 		if anonymizedFile.Content != nil {
@@ -206,7 +212,7 @@ func parseFileName(filename string) (string, string, error) {
 	name := strings.TrimSuffix(filename, filepath.Ext(filename))
 	parts := strings.Split(name, "_")
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf(fileNameFormatErr)
+		return "", "", errFileNameFormat
 	}
 	return parts[0], parts[1], nil
 }
@@ -262,11 +268,11 @@ func createZipFile(anonymizedFiles []File) (*bytes.Buffer, error) {
 	for _, file := range anonymizedFiles {
 		zipFile, err := zipWriter.Create(file.Name)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %v", zipCreationErr, err)
+			return nil, fmt.Errorf("%s: %v", errZipCreation, err)
 		}
 		_, err = zipFile.Write(file.Content)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %v", fileWriteErr, err)
+			return nil, fmt.Errorf("%s: %v", errFileWrite, err)
 		}
 	}
 
@@ -275,7 +281,7 @@ func createZipFile(anonymizedFiles []File) (*bytes.Buffer, error) {
 
 func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer) {
 	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().Format("2006-01-02_15-04-05"))
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", anonymizedZipFileName))
+	c.Header("Content-Disposition", fmt.Sprintf(contentDispositionFmt, anonymizedZipFileName))
 	c.Header("Content-Type", contentTypeZip)
 	c.Header("Access-Control-Expose-Headers", "Content-Disposition")
 	c.Data(http.StatusOK, contentTypeZip, zipBuffer.Bytes())
