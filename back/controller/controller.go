@@ -150,6 +150,9 @@ func processFiles(files []File, password string) ([]File, error) {
 	for _, file := range files {
 		anonymizedFile, err := processFile(file, password)
 		if err != nil {
+			if errors.Is(err, errFileNameFormat) {
+				continue
+			}
 			return nil, err
 		}
 		if anonymizedFile.Content != nil {
