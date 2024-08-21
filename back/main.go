@@ -39,14 +39,14 @@ func main() {
 	if *export {
 		err := controller.SaveCSVFile()
 		if err != nil {
-			log.Fatalf("Error saving CSV file: %v", err)
+			log.Fatalf("Error saving CSV file: %w", err)
 		}
 		return
 	}
 
 	// logディレクトリがない場合は作成
 	if err := os.MkdirAll("log", os.ModePerm); err != nil {
-		log.Fatalf("Failed to create log directory: %v", err)
+		log.Fatalf("Failed to create log directory: %w", err)
 	}
 
 	f, err := os.OpenFile("log/server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -80,7 +80,7 @@ func main() {
 
 	// サーバのルーティング設定
 	router.GET("/", controller.GetTop)
-	router.POST("/", controller.AnonymizeECG)
+	router.GET("/upload", controller.AnonymizeECG)
 	router.GET("/download-csv", controller.ExportCSV)
 
 	// サーバの起動

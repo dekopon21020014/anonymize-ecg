@@ -7,3 +7,4 @@
 *.env
 *.csv
 *.sqlite*
+.DS_store

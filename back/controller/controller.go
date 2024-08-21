@@ -4,8 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/shikidalab/anonymize-ecg/mfer"
 	"github.com/shikidalab/anonymize-ecg/model"
 	"github.com/shikidalab/anonymize-ecg/xml"
@@ -44,104 +45,138 @@ type File struct {
 }
 
 func AnonymizeECG(c *gin.Context) {
-	password, err := validatePasswords(c)
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		c.String(http.StatusBadRequest, err.Error())
-		log.Printf("an error occured in function validatePassward: %v", err)
+		fmt.Println("Error while upgrading connection:", err)
+		return
+	}
+	defer conn.Close()
+
+	passwword, err := validatePassword(conn)
+	if err != nil {
 		return
 	}
 
-	files, err := getFilesFromForm(c)
+	err = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
 	if err != nil {
-		c.String(http.StatusBadRequest, err.Error())
-		log.Printf("an error occured in function getFilesFromForm: %v", err)
-		return
+		log.Println("WriteMessage error:", err)
 	}
 
-	anonymizedFiles, err := processFiles(files, password)
-	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
-		return
-	}
+	ch := make(chan []File)
+	go receiveMessage(conn, ch)
 
-	zipBuffer, err := createZipFile(anonymizedFiles)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	sendZipResponse(c, zipBuffer)
-}
+	zipBuffer := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(zipBuffer)
 
-func validatePasswords(c *gin.Context) (string, error) {
-	password := c.PostForm("password")
-	passwordConfirmation := c.PostForm("passwordConfirmation")
-
-	if password == "" || passwordConfirmation == "" {
-		return "", fmt.Errorf("both password and password confirmation are required")
-	}
-
-	if password != passwordConfirmation {
-		return "", errPasswordMismatch
-	}
-
-	return password, nil
-}
-
-func getFilesFromForm(c *gin.Context) ([]File, error) {
-	// フォームからZIPファイルを取得
-	file, err := c.FormFile("zipfile")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get uploaded file: %v", err)
-	}
-
-	// ZIPファイルを開く
-	srcFile, err := file.Open()
-	if err != nil {
-		return nil, fmt.Errorf("failed to open uploaded file: %v", err)
-	}
-	defer srcFile.Close()
-
-	// ZIPファイルの内容をメモリ上に読み込む
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, srcFile); err != nil {
-		return nil, fmt.Errorf("failed to read uploaded file: %v", err)
-	}
-
-	// メモリ上に読み込んだデータをZIPリーダーに渡す
-	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zip reader: %v", err)
-	}
-
-	// ZIP内のファイルをメモリ上で解凍
-	var files []File
-	for _, f := range zipReader.File {
-		// フォルダはスキップ
-		if f.FileInfo().IsDir() {
-			continue
-		}
-
-		// ファイルを開いて内容を読み込む
-		rc, err := f.Open()
+	for files := range ch {
+		anonymizedFiles, err := processFiles(files, passwword) // passwrod必須
 		if err != nil {
-			return nil, fmt.Errorf("failed to open file in zip: %v", err)
+			c.String(http.StatusInternalServerError, err.Error())
+			return
 		}
-		defer rc.Close()
-
-		// ファイル内容をメモリに読み込む
-		var fileBuf bytes.Buffer
-		if _, err := io.Copy(&fileBuf, rc); err != nil {
-			return nil, fmt.Errorf("failed to read file in zip: %v", err)
+		for _, file := range anonymizedFiles {
+			zipFile, err := zipWriter.Create(file.Name)
+			if err != nil {
+				fmt.Printf("%s: %v", errZipCreation, err)
+				continue
+			}
+			_, err = zipFile.Write(file.Content)
+			if err != nil {
+				fmt.Printf("%s: %v", errFileWrite, err)
+				continue
+			}
 		}
+	}
+	fmt.Println("close")
+	zipWriter.Close()
+	sendZipResponse(c, zipBuffer, conn)
+}
 
-		// ファイル名をキーとして内容をバイトスライスに保存
-		files = append(files, File{
-			Name:    f.Name,
-			Content: fileBuf.Bytes(),
-		})
+func validatePassword(conn *websocket.Conn) (string, error) {
+	messageType, msg, err := conn.ReadMessage()
+	if err != nil {
+		fmt.Println("Error reading message:", err)
+		return "", errors.New(" error reading message")
 	}
 
-	return files, nil
+	var creds struct {
+		Type                 string `json:"type"`
+		Password             string `json:"password"`
+		PasswordConfirmation string `json:"passwordConfirmation"`
+	}
+
+	if messageType == websocket.TextMessage {
+		err := json.Unmarshal(msg, &creds)
+		if err != nil {
+			return "", err
+		}
+
+		if creds.Password != creds.PasswordConfirmation {
+			return "", errPasswordMismatch
+		}
+	}
+	return creds.Password, nil
+}
+
+func receiveMessage(conn *websocket.Conn, ch chan []File) {
+	for {
+		// メッセージを受信する
+		messageType, msg, err := conn.ReadMessage()
+		if err != nil {
+			fmt.Println("Error reading message:", err)
+			break
+		}
+
+		// ZIPファイルをメモリ上で解凍する
+		if messageType == websocket.BinaryMessage {
+			// ZIPファイルをメモリ上で解凍する
+			reader, err := zip.NewReader(bytes.NewReader(msg), int64(len(msg)))
+			if err != nil {
+				fmt.Println("Error creating ZIP reader:", err)
+				continue
+			}
+			var files []File
+			for _, file := range reader.File {
+				// ZIPファイル内のファイルを開く
+				rc, err := file.Open()
+				if err != nil {
+					fmt.Println("Error opening ZIP file entry:", err)
+					continue
+				}
+
+				// ファイルの内容を読み込む
+				fileContent, err := io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					fmt.Println("Error reading file content:", err)
+					continue
+				}
+
+				// ファイル情報を構造体にまとめる
+				files = append(files, File{
+					Name:    file.Name,
+					Content: fileContent,
+				})
+			}
+			ch <- files
+
+			// ファイルデータの処理（例: デバッグ出力）
+			for _, file := range files {
+				fmt.Printf("Received file: %s, size: %d bytes\n", file.Name, len(file.Content))
+			}
+		} else if messageType == websocket.TextMessage {
+			if bytes.Equal(msg, []byte("end")) {
+				break
+			}
+		}
+	}
+	close(ch)
 }
 
 func processFiles(files []File, password string) ([]File, error) {
@@ -159,7 +194,6 @@ func processFiles(files []File, password string) ([]File, error) {
 			anonymizedFiles = append(anonymizedFiles, anonymizedFile)
 		}
 	}
-
 	return anonymizedFiles, nil
 }
 
@@ -178,18 +212,45 @@ func processFile(file File, password string) (File, error) {
 		return File{}, err
 	}
 
-	anonymizedData, err := anonymizeData(file.Content, fileType)
-	if err != nil {
-		return File{}, fmt.Errorf("process file err: %s", err.Error())
-	}
-
 	hashedID, err := hashPatientID(patientID, password)
 	if err != nil {
 		return File{}, fmt.Errorf("hash patient ID err: %s", err.Error())
 	}
 
-	anonymizedFileName := fmt.Sprintf("%s_%s%s", hashedID, date, fileType)
+	// ここで，name, birthDayを定義したい
+	var name, birthtime string
+	if fileType == ".xml" {
+		name, birthtime, err = xml.GetPersonalInfo(file.Content)
+		if err != nil {
+			return File{}, fmt.Errorf("getPersonalInfo error")
+		}
+		fmt.Printf("Name = %s, birthtime = %s\n", name, birthtime)
+		// model.insert(patientID, hashedID, name, birthtime)
+	}
 
+	db, err := model.GetDB(os.Getenv("DSN"))
+	if err != nil {
+		return File{}, err
+	}
+	defer db.Close()
+
+	err = model.Put(db, model.Patient{
+		Id:        patientID,
+		HashedId:  hashedID,
+		Name:      name,
+		Birthtime: birthtime,
+	})
+	if err != nil {
+		return File{}, err
+	}
+	// ここまで
+
+	anonymizedData, err := anonymizeData(file.Content, fileType)
+	if err != nil {
+		return File{}, fmt.Errorf("process file err: %s", err.Error())
+	}
+
+	anonymizedFileName := fmt.Sprintf("%s_%s%s", hashedID, date, fileType)
 	return File{
 		Name:    anonymizedFileName,
 		Content: anonymizedData,
@@ -232,57 +293,31 @@ func anonymizeData(
 }
 
 func hashPatientID(patientID, password string) (string, error) {
-	db, err := model.GetDB(os.Getenv("DSN"))
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	var hashedID string
-	err = db.QueryRow("SELECT hashed_id FROM patients WHERE id = ?", patientID).Scan(&hashedID)
-	if err == nil {
-		// 既存のハッシュIDが見つかった場合、それを返す
-		return hashedID, nil
-	} else if err != sql.ErrNoRows {
-		// sql.ErrNoRows 以外のエラーの場合、エラーを返す
-		return "", err
-	}
-
 	// 新しいハッシュIDを生成
 	newHashedID := sha256.Sum256([]byte(patientID + password))
 	hashedIDStr := hex.EncodeToString(newHashedID[:])
 
-	// 新しいハッシュIDをデータベースに保存
-	_, err = db.Exec("INSERT INTO patients (id, hashed_id) VALUES (?, ?)", patientID, hashedIDStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to save hashed ID: %v", err)
-	}
 	return hashedIDStr, nil
 }
 
-func createZipFile(anonymizedFiles []File) (*bytes.Buffer, error) {
-	bufForResponse := new(bytes.Buffer)
-	zipWriter := zip.NewWriter(bufForResponse)
-	defer zipWriter.Close()
+func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer, conn *websocket.Conn) {
 
-	for _, file := range anonymizedFiles {
-		zipFile, err := zipWriter.Create(file.Name)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %v", errZipCreation, err)
-		}
-		_, err = zipFile.Write(file.Content)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %v", errFileWrite, err)
-		}
+	// 現在の時刻を使用してZIPファイル名を生成
+	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().Format("2006-01-02_15-04-05"))
+
+	// メタデータを先に送信（例：ファイル名、サイズなど）
+	metaData := map[string]string{
+		"fileName": anonymizedZipFileName,
+		"fileType": contentTypeZip,
+	}
+	if err := conn.WriteJSON(metaData); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send metadata"})
+		return
 	}
 
-	return bufForResponse, nil
-}
-
-func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer) {
-	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().Format("2006-01-02_15-04-05"))
-	c.Header("Content-Disposition", fmt.Sprintf(contentDispositionFmt, anonymizedZipFileName))
-	c.Header("Content-Type", contentTypeZip)
-	c.Header("Access-Control-Expose-Headers", "Content-Disposition")
-	c.Data(http.StatusOK, contentTypeZip, zipBuffer.Bytes())
+	// ZIPファイルデータを送信
+	if err := conn.WriteMessage(websocket.BinaryMessage, zipBuffer.Bytes()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send ZIP file"})
+		return
+	}
 }

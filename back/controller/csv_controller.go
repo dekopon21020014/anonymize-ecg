@@ -39,14 +39,14 @@ func SaveCSVFile() error {
 	// データベースへの接続を取得
 	db, err := model.GetDB(os.Getenv("DSN"))
 	if err != nil {
-		return fmt.Errorf("failed to connect to database: %v", err)
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 	defer db.Close() // データベース接続を確実に閉じる
 
 	// CSVデータをエクスポート
 	csv, err := model.ExportPatientsToCSV(db)
 	if err != nil {
-		return fmt.Errorf("failed to export patients to CSV: %v", err)
+		return fmt.Errorf("failed to export patients to CSV: %w", err)
 	}
 
 	// 環境変数から保存先ディレクトリを取得
@@ -57,7 +57,7 @@ func SaveCSVFile() error {
 
 	// 保存先ディレクトリが存在しない場合は作成
 	if err := os.MkdirAll(saveDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directory %s: %v", saveDir, err)
+		return fmt.Errorf("failed to create directory %s: %w", saveDir, err)
 	}
 
 	// 保存するファイルのフルパスを作成
@@ -66,14 +66,14 @@ func SaveCSVFile() error {
 	// ファイルを作成
 	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file %s: %v", filePath, err)
+		return fmt.Errorf("failed to create file %s: %w: ", filePath, err)
 	}
 	defer file.Close()
 
 	// ファイルにデータを書き込む
 	_, err = file.Write(csv.Content)
 	if err != nil {
-		return fmt.Errorf("failed to write to file %s: %v", filePath, err)
+		return fmt.Errorf("failed to write to file %s: %w", filePath, err)
 	}
 
 	fmt.Printf("CSV file exported successfully to: %s\n", filePath)
