@@ -1,68 +1,73 @@
 import JSZip from "jszip";
+
 export async function uploadFiles(
     password: string,
     passwordConfirmation: string,
     files: File[]
-){
-    // WebSocket の初期化
-    const ws = new WebSocket("ws://localhost:8080/upload");
+) {
+    return new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket("ws://localhost:8080/upload");
 
-    ws.onopen = async () => {
-        // 認証情報を送信
-        ws.send(
-            JSON.stringify({
-                type: "credentials",
-                password,
-                passwordConfirmation,
-            })
-        );
-    };
+        ws.onopen = () => {
+            // 認証情報を送信
+            ws.send(
+                JSON.stringify({
+                    type: "credentials",
+                    password,
+                    passwordConfirmation,
+                })
+            );
+        };
 
-    ws.onmessage = async (event) => {
-        if (event.data === "ok") {
-            ws.onmessage = downloadZip(ws)
-            
-            // ファイル送信を開始
-            const chunkSize = 1000;
-            let startIndex = 0;
+        ws.onmessage = async (event) => {
+            if (event.data === "ok") {
+                ws.onmessage = downloadZip(ws)
+                // ファイル送信を開始
+                const chunkSize = 1000;
+                let startIndex = 0;
 
-            while (startIndex < files.length) {
-                const endIndex = Math.min(startIndex + chunkSize, files.length);
-                const fileChunk = files.slice(startIndex, endIndex);
+                while (startIndex < files.length) {
+                    const endIndex = Math.min(startIndex + chunkSize, files.length);
+                    const fileChunk = files.slice(startIndex, endIndex);
 
-                const zip = new JSZip();
+                    const zip = new JSZip();
 
-                // 各ファイルを ZIP に追加
-                for (const file of fileChunk) {
-                    const fileBuffer = await file.arrayBuffer();
-                    zip.file(file.name, fileBuffer);
+                    // 各ファイルを ZIP に追加
+                    for (const file of fileChunk) {
+                        const fileBuffer = await file.arrayBuffer();
+                        zip.file(file.name, fileBuffer);
+                    }
+
+                    // ZIP ファイルを生成
+                    const zipBlob = await zip.generateAsync({ type: "blob" });
+
+                    // ZIP ファイルを送信
+                    ws.send(zipBlob);
+
+                    // 次の 1000 ファイルに進む
+                    startIndex = endIndex;
                 }
 
-                // ZIP ファイルを生成
-                const zipBlob = await zip.generateAsync({ type: "blob" });
-
-                // ZIP ファイルを送信
-                ws.send(zipBlob);
-
-                // 次の 1000 ファイルに進む
-                startIndex = endIndex;
+                // 全てのファイルを送信した後に終了メッセージを送信
+                ws.send("end");
+            } else {
+                console.error("WebSocket Error:", event.data);
+                reject(new Error("WebSocket Error"));
             }
+        };
 
-            // 全てのファイルを送信した後に終了メッセージを送信
-            ws.send("end");
-        } else {
-            console.error("WebSocket Error:", event.data);
-        }
-    };
+        ws.onerror = (error) => {
+            console.error("WebSocket Error:", error);
+            reject(error);
+        };
 
-    ws.onerror = (error) => {
-        console.error("WebSocket Error:", error);
-    };
-
-    ws.onclose = () => {
-        console.log("WebSocket connection closed.");
-    };
+        ws.onclose = () => {
+            console.log("WebSocket connection closed.");
+            resolve();
+        };
+    });
 }
+
 
 export function downloadZip(ws: WebSocket) {
     return async (event: MessageEvent) => {
@@ -100,4 +105,4 @@ export function downloadZip(ws: WebSocket) {
         }
     }
   };
-}  
+}
