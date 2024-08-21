@@ -80,7 +80,7 @@ func main() {
 
 	// サーバのルーティング設定
 	router.GET("/", controller.GetTop)
-	router.POST("/", controller.AnonymizeECG)
+	router.GET("/upload", controller.AnonymizeECG)
 	router.GET("/download-csv", controller.ExportCSV)
 
 	// サーバの起動
