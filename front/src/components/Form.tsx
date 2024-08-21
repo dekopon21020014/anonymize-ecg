@@ -10,7 +10,8 @@ import {
   Paper,
   Stack,  
 } from '@mui/material';
-import JSZip from "jszip";
+import { uploadFiles } from '@/lib/uploadFiles';
+//import JSZip from "jszip";
 
 type FormValuesType = {
   password: string;
@@ -38,63 +39,8 @@ const Form = () => {
   const handleFormSubmit = async (data: FormValuesType) => {
     if (files.length === 0) return;
     setUploading(true);
-    
-    const zip = new JSZip();
-    // Add files to the zip archive
-    files.forEach((file, index) => {
-      zip.file(`${file.name}`, file);
-    });
-
-    // Generate the zip file
-    const zipBlob = await zip.generateAsync({ type: "blob" });
-
-    const formData = new FormData();
-    formData.append("zipfile", zipBlob, "files.zip"); 
-
-    formData.append('password', data.password);
-    formData.append('passwordConfirmation', data.passwordConfirmation);
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_BACK_ORIGIN
-      const response = await fetch(`${apiUrl}`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (response.ok) {
-        const blob = await response.blob();
-        const contentDisposition = response.headers.get('Content-Disposition');
-        let fileName = 'downloaded-file.zip'; // default failename
-        if (contentDisposition && contentDisposition.includes('filename=')) {
-          const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
-          if (matches != null && matches[1]) { 
-            fileName = matches[1].replace(/['"]/g, '');
-          }
-        }
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        a.remove();
-
-        console.log('Files downloaded successfully');
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        setFiles([]);
-        router.push('/');
-      } else {
-        console.error('Upload failed');
-      }
-    } catch (error) {
-      console.error('Error during upload:', error);
-    } finally {
-      setUploading(false);
-    }
+    await uploadFiles(data.password, data.passwordConfirmation, files);
+    setUploading(false);
   };
 
   return (
