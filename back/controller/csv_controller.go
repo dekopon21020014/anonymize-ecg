@@ -66,7 +66,7 @@ func SaveCSVFile() error {
 	// ファイルを作成
 	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file %s: ", filePath, err)
+		return fmt.Errorf("failed to create file %s: %w: ", filePath, err)
 	}
 	defer file.Close()
 
