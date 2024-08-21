@@ -8,6 +8,46 @@ import (
 	"time"
 )
 
+func GetPersonalInfo(xmlData []byte) (string, string, error) {
+	var name, birthtime string
+	decoder := xml.NewDecoder(bytes.NewReader(xmlData))
+	var inFamily bool
+
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("error decoding token: %w", err)
+		}
+
+		switch tok := token.(type) {
+		case xml.StartElement:
+			// inFamily, inPatientPatient = handleStartElement(tok, encoder, inFamily, inPatientPatient)
+			switch tok.Name.Local {
+			case "family":
+				inFamily = true
+			case "birthTime":
+				for _, attr := range tok.Attr {
+					if attr.Name.Local == "value" {
+						birthtime = attr.Value
+					}
+				}
+			}
+		case xml.EndElement:
+			if tok.Name.Local == "family" {
+				inFamily = false
+			}
+		case xml.CharData:
+			if inFamily {
+				name += string(tok)
+			}
+		}
+	}
+	return name, birthtime, nil
+}
+
 func Anonymize(xmlData []byte) ([]byte, error) {
 	var buffer bytes.Buffer
 	decoder := xml.NewDecoder(bytes.NewReader(xmlData))
