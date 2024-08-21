@@ -86,12 +86,12 @@ func AnonymizeECG(c *gin.Context) {
 		for _, file := range anonymizedFiles {
 			zipFile, err := zipWriter.Create(file.Name)
 			if err != nil {
-				fmt.Printf("%s: %v", errZipCreation, err)
+				fmt.Printf("%s: %w", errZipCreation, err)
 				continue
 			}
 			_, err = zipFile.Write(file.Content)
 			if err != nil {
-				fmt.Printf("%s: %v", errFileWrite, err)
+				fmt.Printf("%s: %w", errFileWrite, err)
 				continue
 			}
 		}
@@ -288,7 +288,7 @@ func hashPatientID(patientID, password string) (string, error) {
 	// 新しいハッシュIDをデータベースに保存
 	_, err = db.Exec("INSERT INTO patients (id, hashed_id) VALUES (?, ?)", patientID, hashedIDStr)
 	if err != nil {
-		return "", fmt.Errorf("failed to save hashed ID: %v", err)
+		return "", fmt.Errorf("failed to save hashed ID: %w", err)
 	}
 	return hashedIDStr, nil
 }

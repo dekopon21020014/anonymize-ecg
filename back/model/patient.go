@@ -49,7 +49,7 @@ type File struct {
 func ExportPatientsToCSV(db *sql.DB) (*File, error) {
 	rows, err := db.Query("SELECT id, hashed_id FROM patients")
 	if err != nil {
-		return nil, fmt.Errorf("database query failed: %v", err)
+		return nil, fmt.Errorf("database query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -58,28 +58,28 @@ func ExportPatientsToCSV(db *sql.DB) (*File, error) {
 
 	// Write header
 	if err := writer.Write([]string{"id", "hashed_id"}); err != nil {
-		return nil, fmt.Errorf("failed to write CSV header: %v", err)
+		return nil, fmt.Errorf("failed to write CSV header: %w", err)
 	}
 
 	// Write rows
 	for rows.Next() {
 		var id, hashedID string
 		if err := rows.Scan(&id, &hashedID); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %v", err)
+			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 		if err := writer.Write([]string{id, hashedID}); err != nil {
-			return nil, fmt.Errorf("failed to write CSV row: %v", err)
+			return nil, fmt.Errorf("failed to write CSV row: %w", err)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error during row iteration: %v", err)
+		return nil, fmt.Errorf("error during row iteration: %w", err)
 	}
 
 	writer.Flush()
 
 	if err := writer.Error(); err != nil {
-		return nil, fmt.Errorf("error flushing CSV writer: %v", err)
+		return nil, fmt.Errorf("error flushing CSV writer: %w", err)
 	}
 
 	// Generate a unique filename
