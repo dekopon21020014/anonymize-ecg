@@ -11,7 +11,6 @@ import {
   Stack,  
 } from '@mui/material';
 import { uploadFiles } from '@/lib/uploadFiles';
-//import JSZip from "jszip";
 
 type FormValuesType = {
   password: string;
@@ -102,7 +101,7 @@ const Form = () => {
             '&:disabled': { backgroundColor: '#ccc', color: '#fff' }
           }}
         >
-          {uploading ? 'Uploading...' : 'アップロード'}
+          {uploading ? 'Uploading...' : '匿名化を開始する'}
         </Button>
         {files.length > 0 && (
           <>
