@@ -93,7 +93,6 @@ func AnonymizeECG(c *gin.Context) {
 			}
 		}
 	}
-	fmt.Println("close")
 	zipWriter.Close()
 	sendZipResponse(c, zipBuffer, conn)
 }
@@ -165,11 +164,6 @@ func receiveMessage(conn *websocket.Conn, ch chan []File) {
 				})
 			}
 			ch <- files
-
-			// ファイルデータの処理（例: デバッグ出力）
-			for _, file := range files {
-				fmt.Printf("Received file: %s, size: %d bytes\n", file.Name, len(file.Content))
-			}
 		} else if messageType == websocket.TextMessage {
 			if bytes.Equal(msg, []byte("end")) {
 				break
@@ -224,8 +218,6 @@ func processFile(file File, password string) (File, error) {
 		if err != nil {
 			return File{}, fmt.Errorf("getPersonalInfo error")
 		}
-		fmt.Printf("Name = %s, birthtime = %s\n", name, birthtime)
-		// model.insert(patientID, hashedID, name, birthtime)
 	}
 
 	db, err := model.GetDB(os.Getenv("DSN"))
