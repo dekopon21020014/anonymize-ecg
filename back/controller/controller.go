@@ -53,19 +53,21 @@ func AnonymizeECG(c *gin.Context) {
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		fmt.Println("Error while upgrading connection:", err)
+		log.Println("Error while upgrading connection:", err)
 		return
 	}
 	defer conn.Close()
 
 	passwword, err := validatePassword(conn)
 	if err != nil {
+		log.Println("Error in validate password: ", err)
 		return
 	}
 
 	err = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
 	if err != nil {
 		log.Println("WriteMessage error:", err)
+		return
 	}
 
 	ch := make(chan []File)
@@ -295,7 +297,8 @@ func hashPatientID(patientID, password string) (string, error) {
 func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer, conn *websocket.Conn) {
 
 	// 現在の時刻を使用してZIPファイル名を生成
-	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().Format("2006-01-02_15-04-05"))
+	loc, _ := time.LoadLocation("Asia/Tokyo")
+	anonymizedZipFileName := fmt.Sprintf("%s.zip", time.Now().In(loc).Format("2006-01-02_15-04-05"))
 
 	// メタデータを先に送信（例：ファイル名、サイズなど）
 	metaData := map[string]string{
