@@ -134,7 +134,6 @@ func DeleteAllEntry(db *sql.DB, table string) error {
 }
 
 func Put(db *sql.DB, patient Patient) error {
-	fmt.Printf("patient = %+v\n", patient)
 	// まず、指定されたIDが存在するかを確認
 	var existing Patient
 	query := `SELECT id, hashed_id, name, birthtime FROM patients WHERE id = ?`

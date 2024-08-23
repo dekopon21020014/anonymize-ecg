@@ -2,9 +2,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -15,41 +17,15 @@ import (
 )
 
 func main() {
-	// .envファイルを読み込む
-	err := godotenv.Load("../.env")
-	if err != nil {
-		log.Fatalf("Error loading .env file")
-	}
-	// 環境変数を取得
-	dsn := os.Getenv("DSN")
-
-	// dbのセットアップ
-	err = model.SetupDB(dsn)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// `-export` オプションを定義
-	export := flag.Bool("export", false, "Export the data")
-
-	// 引数を解析
-	flag.Parse()
-
-	// `-export` が指定された場合はcsvに吐き出して終了
-	if *export {
-		err := controller.SaveCSVFile()
-		if err != nil {
-			log.Fatalf("Error saving CSV file: %w", err)
-		}
-		return
-	}
-
-	// logディレクトリがない場合は作成
+	// ログファイルの設定
 	if err := os.MkdirAll("log", os.ModePerm); err != nil {
-		log.Fatalf("Failed to create log directory: %w", err)
+		log.Fatalf("Failed to create log directory: %v", err)
 	}
 
-	f, err := os.OpenFile("log/server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	loc, _ := time.LoadLocation("Asia/Tokyo")
+	logFileName := fmt.Sprintf("log/%s.log", time.Now().In(loc).Format("2006-01-02")) // 実行した日付のログファイルをつくる
+
+	f, err := os.OpenFile(logFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,19 +34,45 @@ func main() {
 	// 標準出力とファイルに同時にログを書き込むためのMultiWriterを作成
 	multiWriter := io.MultiWriter(os.Stdout, f)
 
-	// ginのログ出力先をstdoutとserver.logの両方に指定
+	// logをstdoutとログファイルの両方に出す
+	log.SetOutput(multiWriter)
+	log.Println("main function was started")
+
+	// .envファイルを読み込む
+	err = godotenv.Load("../.env")
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+	}
+
+	// dbの立ち上げ
+	dsn := os.Getenv("DSN")
+	err = model.SetupDB(dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// `-export` オプションを定義
+	export := flag.Bool("export", false, "Export the data")
+
+	// `-export` が指定された場合はcsvに吐き出して終了
+	flag.Parse()
+	if *export {
+		err := controller.SaveCSVFile()
+		if err != nil {
+			log.Fatalf("Error saving CSV file: %v", err)
+		}
+		return
+	}
+
+	// ginのログ出力先をstdoutとlogファイルの両方に指定
 	gin.DefaultWriter = multiWriter
 	gin.DefaultErrorWriter = multiWriter
-
-	// 標準のlogパッケージも同じmultiWriterを使用する
-	log.SetOutput(multiWriter)
 
 	// httpサーバのセットアップ
 	router := gin.Default()
 
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
-
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{os.Getenv("FRONT_ORIGIN")}, // フロントエンドのオリジン
 		AllowMethods:     []string{"GET", "POST"},
