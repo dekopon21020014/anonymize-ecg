@@ -60,12 +60,14 @@ func AnonymizeECG(c *gin.Context) {
 
 	passwword, err := validatePassword(conn)
 	if err != nil {
+		c.String(http.StatusUnauthorized, err.Error())
 		log.Println("Error in validate password: ", err)
 		return
 	}
 
 	err = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
 	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
 		log.Println("WriteMessage error:", err)
 		return
 	}
@@ -79,31 +81,31 @@ func AnonymizeECG(c *gin.Context) {
 	for files := range ch {
 		anonymizedFiles, err := processFiles(files, passwword) // passwrod必須
 		if err != nil {
-			c.String(http.StatusInternalServerError, err.Error())
-			return
+			log.Println("an error occred in procellFiles and skipped: ", err)
+			continue
 		}
 		for _, file := range anonymizedFiles {
 			zipFile, err := zipWriter.Create(file.Name)
 			if err != nil {
-				fmt.Printf("%s: %v", errZipCreation, err)
+				log.Printf("%s: %v", errZipCreation, err)
 				continue
 			}
 			_, err = zipFile.Write(file.Content)
 			if err != nil {
-				fmt.Printf("%s: %v", errFileWrite, err)
+				log.Printf("%s: %v", errFileWrite, err)
 				continue
 			}
 		}
 	}
 	zipWriter.Close()
 	sendZipResponse(c, zipBuffer, conn)
+	log.Println("The files have been anonymized")
 }
 
 func validatePassword(conn *websocket.Conn) (string, error) {
 	messageType, msg, err := conn.ReadMessage()
 	if err != nil {
-		fmt.Println("Error reading message:", err)
-		return "", errors.New(" error reading message")
+		return "", fmt.Errorf("error reading message: %w", err)
 	}
 
 	var creds struct {
@@ -115,11 +117,11 @@ func validatePassword(conn *websocket.Conn) (string, error) {
 	if messageType == websocket.TextMessage {
 		err := json.Unmarshal(msg, &creds)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("error json.Unmershal: %w", err)
 		}
 
 		if creds.Password != creds.PasswordConfirmation {
-			return "", errPasswordMismatch
+			return "", fmt.Errorf("error mathing password: %w", errPasswordMismatch)
 		}
 	}
 	return creds.Password, nil
@@ -130,16 +132,15 @@ func receiveMessage(conn *websocket.Conn, ch chan []File) {
 		// メッセージを受信する
 		messageType, msg, err := conn.ReadMessage()
 		if err != nil {
-			fmt.Println("Error reading message:", err)
+			log.Println("Error reading message in receiveMessage:", err)
 			break
 		}
 
 		// ZIPファイルをメモリ上で解凍する
 		if messageType == websocket.BinaryMessage {
-			// ZIPファイルをメモリ上で解凍する
 			reader, err := zip.NewReader(bytes.NewReader(msg), int64(len(msg)))
 			if err != nil {
-				fmt.Println("Error creating ZIP reader:", err)
+				log.Println("Error creating ZIP reader:", err)
 				continue
 			}
 			var files []File
@@ -147,7 +148,7 @@ func receiveMessage(conn *websocket.Conn, ch chan []File) {
 				// ZIPファイル内のファイルを開く
 				rc, err := file.Open()
 				if err != nil {
-					fmt.Println("Error opening ZIP file entry:", err)
+					log.Println("Error opening ZIP file entry:", err)
 					continue
 				}
 
@@ -155,7 +156,7 @@ func receiveMessage(conn *websocket.Conn, ch chan []File) {
 				fileContent, err := io.ReadAll(rc)
 				rc.Close()
 				if err != nil {
-					fmt.Println("Error reading file content:", err)
+					log.Println("Error reading file content:", err)
 					continue
 				}
 
@@ -168,6 +169,7 @@ func receiveMessage(conn *websocket.Conn, ch chan []File) {
 			ch <- files
 		} else if messageType == websocket.TextMessage {
 			if bytes.Equal(msg, []byte("end")) {
+				log.Println("end of message")
 				break
 			}
 		}
@@ -181,10 +183,8 @@ func processFiles(files []File, password string) ([]File, error) {
 	for _, file := range files {
 		anonymizedFile, err := processFile(file, password)
 		if err != nil {
-			if errors.Is(err, errFileNameFormat) {
-				continue
-			}
-			return nil, err
+			log.Println("error in processFile: ", err)
+			continue
 		}
 		if anonymizedFile.Content != nil {
 			anonymizedFiles = append(anonymizedFiles, anonymizedFile)
@@ -194,12 +194,9 @@ func processFiles(files []File, password string) ([]File, error) {
 }
 
 func processFile(file File, password string) (File, error) {
-	fileType, err := getFileType(file.Name)
-	if err != nil {
-		return File{}, err
-	}
-
+	fileType := getFileType(file.Name)
 	if fileType == "" {
+		log.Println("non-mwf and non-xml file, and skipped it")
 		return File{}, nil // Skip non-MWF and non-XML files
 	}
 
@@ -208,17 +205,13 @@ func processFile(file File, password string) (File, error) {
 		return File{}, err
 	}
 
-	hashedID, err := hashPatientID(patientID, password)
-	if err != nil {
-		return File{}, fmt.Errorf("hash patient ID err: %s", err.Error())
-	}
+	hashedID := hashPatientID(patientID, password)
 
-	// ここで，name, birthDayを定義したい
 	var name, birthtime string
-	if fileType == ".xml" {
+	if fileType == ".xml" { // xmlの時には名前と生年月日を取得する
 		name, birthtime, err = xml.GetPersonalInfo(file.Content)
 		if err != nil {
-			return File{}, fmt.Errorf("getPersonalInfo error")
+			log.Println("getPersonalInfo error: ", err)
 		}
 	}
 
@@ -237,11 +230,10 @@ func processFile(file File, password string) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
-	// ここまで
 
 	anonymizedData, err := anonymizeData(file.Content, fileType)
 	if err != nil {
-		return File{}, fmt.Errorf("process file err: %s", err.Error())
+		return File{}, fmt.Errorf("process file err: %w", err)
 	}
 
 	anonymizedFileName := fmt.Sprintf("%s_%s%s", hashedID, date, fileType)
@@ -251,15 +243,15 @@ func processFile(file File, password string) (File, error) {
 	}, nil
 }
 
-func getFileType(filename string) (string, error) {
+func getFileType(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch ext {
 	case ".mwf":
-		return ".mwf", nil
+		return ".mwf"
 	case ".xml":
-		return ".xml", nil
+		return ".xml"
 	default:
-		return "", nil
+		return ""
 	}
 }
 
@@ -286,12 +278,12 @@ func anonymizeData(
 	}
 }
 
-func hashPatientID(patientID, password string) (string, error) {
+func hashPatientID(patientID, password string) string {
 	// 新しいハッシュIDを生成
 	newHashedID := sha256.Sum256([]byte(patientID + password))
 	hashedIDStr := hex.EncodeToString(newHashedID[:])
 
-	return hashedIDStr, nil
+	return hashedIDStr
 }
 
 func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer, conn *websocket.Conn) {
@@ -305,13 +297,16 @@ func sendZipResponse(c *gin.Context, zipBuffer *bytes.Buffer, conn *websocket.Co
 		"fileName": anonymizedZipFileName,
 		"fileType": contentTypeZip,
 	}
+
 	if err := conn.WriteJSON(metaData); err != nil {
+		log.Println("error writeJSON: ", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send metadata"})
 		return
 	}
 
 	// ZIPファイルデータを送信
 	if err := conn.WriteMessage(websocket.BinaryMessage, zipBuffer.Bytes()); err != nil {
+		log.Println("error in WriteMessage: ", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send ZIP file"})
 		return
 	}

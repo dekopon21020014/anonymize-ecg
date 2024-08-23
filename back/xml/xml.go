@@ -24,7 +24,6 @@ func GetPersonalInfo(xmlData []byte) (string, string, error) {
 
 		switch tok := token.(type) {
 		case xml.StartElement:
-			// inFamily, inPatientPatient = handleStartElement(tok, encoder, inFamily, inPatientPatient)
 			switch tok.Name.Local {
 			case "family":
 				inFamily = true
