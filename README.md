@@ -2,6 +2,8 @@
 ## 使用言語
 ![Next.js](https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 ## 概要
 - 心電図データ(mwfおよびxml)に含まれる個人情報を削除し匿名化するwebアプリケーションです
@@ -9,6 +11,7 @@
 ## 環境
 - Node.js 18.17.1(docker)
 - Go 1.22.1(docker)
+- sqlite3
 
 ## インストール手順
 ```bash
