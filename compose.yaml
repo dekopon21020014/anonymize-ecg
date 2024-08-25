@@ -1,6 +1,7 @@
 services:
   front:
     container_name: front
+    image: anonymize-ecg-front:arm64
     build:
       context: .
       dockerfile: ./dockerfiles/front/Dockerfile
@@ -15,6 +16,7 @@ services:
     
   back:
     container_name: back
+    image: anonymize-ecg-back:arm64
     build:
       context: .
       dockerfile: ./dockerfiles/back/Dockerfile
