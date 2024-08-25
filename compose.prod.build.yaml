@@ -1,13 +1,12 @@
 services:
   front:
     container_name: front
-    image: anonymize-ecg-front:arm64
+    image: anonymize-ecg-front:amd64
     build:
       context: .
       dockerfile: ./dockerfiles/front/Dockerfile
+    platform: linux/amd64
     tty: true
-    volumes:
-      - ./front:/app
     environment:
       - WATCHPACK_POLLING=true
     command: sh -c "./wait-for-back.sh npm run dev"
@@ -16,14 +15,12 @@ services:
     
   back:
     container_name: back
-    image: anonymize-ecg-back:arm64
+    image: anonymize-ecg-back:amd64
     build:
       context: .
       dockerfile: ./dockerfiles/back/Dockerfile
+    platform: linux/amd64
     tty: true
-    volumes:
-      - ./back:/app
-      - ${DOWNLOAD_DIR}:${SAVE_DIR}
     command: sh -c "go run main.go"
     ports:
       - "8080:8080"
