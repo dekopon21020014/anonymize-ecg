@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Anonymize ECG
+Exec=anonymize-ecg
+Icon=system-run
+X-GNOME-Autostart-enabled=true
