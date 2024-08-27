@@ -1,0 +1,14 @@
+#!/bin/sh
+
+docker rm -f $(docker ps -aq)
+docker compose -f ~/anonymize-ecg/compose.prod.yaml up -d
+
+while true; do
+    http_status=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:3000")
+    if [ "$http_status" -eq 200 ]; then
+	/usr/bin/google-chrome "http://localhost:3000" &
+	break
+    else
+	sleep 2
+    fi 
+done
