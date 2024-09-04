@@ -12,7 +12,7 @@ services:
     
   back:
     container_name: back
-    image: anonymize-ecg-back
+    image: anonymize-ecg-back:amd64
     platform: linux/amd64
     tty: true
     command: sh -c "go run main.go"
