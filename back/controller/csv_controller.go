@@ -23,11 +23,11 @@ func ExportCSV(c *gin.Context) {
 		return
 	}
 
-	err = model.DeleteAllEntry(db, "patients")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	// err = model.DeleteAllEntry(db, "patients")
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// 	return
+	// }
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileStruct.Name))
 	c.Header("Content-Type", "text/csv")
