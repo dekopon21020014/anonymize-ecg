@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-func GetPersonalInfo(xmlData []byte) (string, string, error) {
-	var name, birthtime string
+func GetPersonalInfo(xmlData []byte) (string, string, string, string, error) {
+	var ecgID, patientID, name, birthtime string
 	decoder := xml.NewDecoder(bytes.NewReader(xmlData))
-	var inFamily bool
+	var inFamily, inPatientPatient, ecgIDisRecorded bool
 
 	for {
 		token, err := decoder.Token()
@@ -19,7 +19,7 @@ func GetPersonalInfo(xmlData []byte) (string, string, error) {
 			break
 		}
 		if err != nil {
-			return "", "", fmt.Errorf("error decoding token: %w", err)
+			return "", "", "", "", fmt.Errorf("error decoding token: %w", err)
 		}
 
 		switch tok := token.(type) {
@@ -33,10 +33,31 @@ func GetPersonalInfo(xmlData []byte) (string, string, error) {
 						birthtime = attr.Value
 					}
 				}
+			case "patientPatient":
+				inPatientPatient = true
+			case "id":
+				if inPatientPatient {
+					for _, attr := range tok.Attr {
+						if attr.Name.Local == "extension" {
+							patientID = attr.Value
+							break
+						}
+					}
+				} else if !ecgIDisRecorded {
+					for _, attr := range tok.Attr {
+						if attr.Name.Local == "extension" {
+							ecgID = attr.Value
+							ecgIDisRecorded = true
+							break
+						}
+					}
+				}
 			}
 		case xml.EndElement:
 			if tok.Name.Local == "family" {
 				inFamily = false
+			} else if tok.Name.Local == "patientPatient" {
+				inPatientPatient = false
 			}
 		case xml.CharData:
 			if inFamily {
@@ -44,7 +65,8 @@ func GetPersonalInfo(xmlData []byte) (string, string, error) {
 			}
 		}
 	}
-	return name, birthtime, nil
+
+	return ecgID, patientID, name, birthtime, nil
 }
 
 func Anonymize(xmlData []byte) ([]byte, error) {

@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"time"
 )
 
-type Patient struct {
+type ECG struct {
 	Id        string
+	PatientID string
 	HashedId  string
+	ExportID  string
 	Name      string
 	Birthtime string
 }
@@ -25,9 +28,11 @@ func SetupDB(dsn string) error {
 	defer db.Close()
 
 	queries := []string{
-		`CREATE TABLE IF NOT EXISTS patients(
-			id TEXT PRIMARY KEY, 
+		`CREATE TABLE IF NOT EXISTS ecgs(
+			id TEXT NOT NULL PRIMARY KEY,
+			patient_id TEXT NOT NULL,
 			hashed_id TEXT NOT NULL,
+			export_id TEXT NOT NULL,
 			name TEXT,
 			birthtime TEXT
 		)`,
@@ -57,7 +62,7 @@ type File struct {
 
 // ExportPatientsToCSV exports the patients table to an in-memory CSV file
 func ExportPatientsToCSV(db *sql.DB) (*File, error) {
-	rows, err := db.Query("SELECT * FROM patients")
+	rows, err := db.Query("SELECT * FROM ecgs")
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
 	}
@@ -67,17 +72,17 @@ func ExportPatientsToCSV(db *sql.DB) (*File, error) {
 	writer := csv.NewWriter(&buf)
 
 	// Write header
-	if err := writer.Write([]string{"id", "hashed_id", "name", "birthtime"}); err != nil {
+	if err := writer.Write([]string{"id", "patient_id", "hashed_id", "export_id", "name", "birthtime"}); err != nil {
 		return nil, fmt.Errorf("failed to write CSV header: %w", err)
 	}
 
 	// Write rows
 	for rows.Next() {
-		var id, hashedID, name, birthtime string
-		if err := rows.Scan(&id, &hashedID, &name, &birthtime); err != nil {
+		var id, patientID, hashedID, exportID, name, birthtime string
+		if err := rows.Scan(&id, &patientID, &hashedID, &exportID, &name, &birthtime); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
-		if err := writer.Write([]string{id, hashedID, name, birthtime}); err != nil {
+		if err := writer.Write([]string{id, patientID, hashedID, exportID, name, birthtime}); err != nil {
 			return nil, fmt.Errorf("failed to write CSV row: %w", err)
 		}
 	}
@@ -133,56 +138,44 @@ func DeleteAllEntry(db *sql.DB, table string) error {
 	return nil
 }
 
-func Put(db *sql.DB, patient Patient) error {
+func Put(db *sql.DB, ecg ECG) error {
 	// まず、指定されたIDが存在するかを確認
-	var existing Patient
-	query := `SELECT id, hashed_id, name, birthtime FROM patients WHERE id = ?`
-	err := db.QueryRow(query, patient.Id).Scan(&existing.Id, &existing.HashedId, &existing.Name, &existing.Birthtime)
+	var existing ECG
+	query := `SELECT id, patient_id, hashed_id, export_id, name, birthtime FROM ecgs WHERE id = ?`
+	err := db.QueryRow(query, ecg.Id).Scan(
+		&existing.Id,
+		&existing.PatientID,
+		&existing.HashedId,
+		&existing.ExportID,
+		&existing.Name,
+		&existing.Birthtime,
+	)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// IDが存在しない場合は、新しいレコードを挿入
-			insertQuery := `INSERT INTO patients (id, hashed_id, name, birthtime) VALUES (?, ?, ?, ?)`
-			_, err := db.Exec(insertQuery, patient.Id, patient.HashedId, patient.Name, patient.Birthtime)
+			insertQuery := `INSERT INTO ecgs (id, patient_id, hashed_id, export_id, name, birthtime) VALUES (?, ?, ?, ?, ?, ?)`
+			_, err := db.Exec(insertQuery, ecg.Id, ecg.PatientID, ecg.HashedId, ecg.ExportID, ecg.Name, ecg.Birthtime)
 			if err != nil {
-				fmt.Println("maji")
-				return fmt.Errorf("failed to insert new patient: %w", err)
+				return fmt.Errorf("failed to insert new ecg: %w", err)
 			}
 		} else {
 			// その他のエラーが発生した場合
-			return fmt.Errorf("failed to check existing patient: %w", err)
+			return fmt.Errorf("failed to check existing ecg: %w", err)
 		}
 	} else {
-		// IDが存在する場合は、空のカラムのみを更新
-		updateFields := []string{}
-		args := []interface{}{}
-
-		if existing.Name == "" && patient.Name != "" {
-			updateFields = append(updateFields, "name = ?")
-			args = append(args, patient.Name)
-		}
-
-		if existing.Birthtime == "" && patient.Birthtime != "" {
-			updateFields = append(updateFields, "birthtime = ?")
-			args = append(args, patient.Birthtime)
-		}
-
-		if len(updateFields) > 0 {
-			updateQuery := `UPDATE patients SET ` + updateFields[0]
-
-			// 複数のカラムが更新対象の場合、クエリを追加
-			for i := 1; i < len(updateFields); i++ {
-				updateQuery += fmt.Sprintf(", %s", updateFields[i])
-			}
-
-			updateQuery += ` WHERE id = ?`
-			args = append(args, patient.Id)
-
-			_, err := db.Exec(updateQuery, args...)
-			if err != nil {
-				return fmt.Errorf("failed to update patient: %v", err)
-			}
-		}
+		log.Println("warning: the ID is already exists")
 	}
+
 	return nil
+}
+
+func GetHashedIDByExportID(db *sql.DB, exportID string) (string, error) {
+	selectQuery := `SELECT hashed_id FROM ecgs WHERE export_id = ?`
+	var hashedID string
+	err := db.QueryRow(selectQuery, exportID).Scan(&hashedID)
+	if err != nil {
+		return "", fmt.Errorf("failed to select hashed ID from ecgs: %w", err)
+	}
+	return hashedID, nil
 }
