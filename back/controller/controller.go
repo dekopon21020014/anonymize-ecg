@@ -44,6 +44,65 @@ type File struct {
 	Content []byte
 }
 
+/*
+	func AnonymizeECG(c *gin.Context) {
+		upgrader := websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		}
+
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Println("Error while upgrading connection:", err)
+			return
+		}
+		defer conn.Close()
+
+		passwword, err := validatePassword(conn)
+		if err != nil {
+			c.String(http.StatusUnauthorized, err.Error())
+			log.Println("Error in validate password: ", err)
+			return
+		}
+
+		err = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
+		if err != nil {
+			c.String(http.StatusInternalServerError, err.Error())
+			log.Println("WriteMessage error:", err)
+			return
+		}
+
+		ch := make(chan []File)
+		go receiveMessage(conn, ch)
+
+		zipBuffer := new(bytes.Buffer)
+		zipWriter := zip.NewWriter(zipBuffer)
+
+		for files := range ch {
+			anonymizedFiles, err := processFiles(files, passwword) // passwrod必須
+			if err != nil {
+				log.Println("an error occred in procellFiles and skipped: ", err)
+				continue
+			}
+			for _, file := range anonymizedFiles {
+				zipFile, err := zipWriter.Create(file.Name)
+				if err != nil {
+					log.Printf("%s: %v", errZipCreation, err)
+					continue
+				}
+				_, err = zipFile.Write(file.Content)
+				if err != nil {
+					log.Printf("%s: %v", errFileWrite, err)
+					continue
+				}
+			}
+		}
+		zipWriter.Close()
+		sendZipResponse(c, zipBuffer, conn)
+		log.Println("The files have been anonymized")
+	}
+*/
 func AnonymizeECG(c *gin.Context) {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -58,7 +117,7 @@ func AnonymizeECG(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	passwword, err := validatePassword(conn)
+	password, err := validatePassword(conn)
 	if err != nil {
 		c.String(http.StatusUnauthorized, err.Error())
 		log.Println("Error in validate password: ", err)
@@ -72,34 +131,199 @@ func AnonymizeECG(c *gin.Context) {
 		return
 	}
 
-	ch := make(chan []File)
-	go receiveMessage(conn, ch)
+	// バッファ付きのチャネルを使用
+	xmlCh := make(chan []File, 10)
+	mwfCh := make(chan []File, 10)
+	doneCh := make(chan bool)
 
+	// ファイルを受信してチャネルに送る
+	go receiveAndBufferFiles(conn, xmlCh, mwfCh)
+
+	// ZIP作成用のバッファとライター
 	zipBuffer := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(zipBuffer)
 
-	for files := range ch {
-		anonymizedFiles, err := processFiles(files, passwword) // passwrod必須
-		if err != nil {
-			log.Println("an error occred in procellFiles and skipped: ", err)
-			continue
-		}
-		for _, file := range anonymizedFiles {
-			zipFile, err := zipWriter.Create(file.Name)
+	// XMLファイルの処理を完了してからMWFファイルを処理
+	go func() {
+		// まずXMLファイルを処理
+		for xmlFiles := range xmlCh {
+			anonymizedFiles, err := processFiles(xmlFiles, password)
 			if err != nil {
-				log.Printf("%s: %v", errZipCreation, err)
+				log.Println("Error processing XML files:", err)
 				continue
 			}
-			_, err = zipFile.Write(file.Content)
-			if err != nil {
-				log.Printf("%s: %v", errFileWrite, err)
-				continue
+			if err := addFilesToZip(zipWriter, anonymizedFiles); err != nil {
+				log.Println("Error adding XML files to zip:", err)
 			}
 		}
-	}
-	zipWriter.Close()
+
+		// 次にMWFファイルを処理
+		for mwfFiles := range mwfCh {
+			anonymizedFiles, err := processFiles(mwfFiles, password)
+			if err != nil {
+				log.Println("Error processing MWF files:", err)
+				continue
+			}
+			if err := addFilesToZip(zipWriter, anonymizedFiles); err != nil {
+				log.Println("Error adding MWF files to zip:", err)
+			}
+		}
+
+		zipWriter.Close()
+		doneCh <- true
+	}()
+
+	// 処理完了を待機
+	<-doneCh
+
 	sendZipResponse(c, zipBuffer, conn)
 	log.Println("The files have been anonymized")
+}
+
+func receiveAndBufferFiles(conn *websocket.Conn, xmlCh, mwfCh chan<- []File) {
+	ch := make(chan []File)
+	go receiveMessage(conn, ch)
+
+	for files := range ch {
+		xmlFiles := make([]File, 0)
+		mwfFiles := make([]File, 0)
+
+		for _, file := range files {
+			if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
+				xmlFiles = append(xmlFiles, file)
+			} else if strings.HasSuffix(strings.ToLower(file.Name), ".mwf") {
+				mwfFiles = append(mwfFiles, file)
+			}
+		}
+
+		if len(xmlFiles) > 0 {
+			xmlCh <- xmlFiles
+		}
+		if len(mwfFiles) > 0 {
+			mwfCh <- mwfFiles
+		}
+	}
+
+	close(xmlCh)
+	close(mwfCh)
+}
+
+/*
+func AnonymizeECG(c *gin.Context) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println("Error while upgrading connection:", err)
+		return
+	}
+	defer conn.Close()
+
+	password, err := validatePassword(conn)
+	if err != nil {
+		c.String(http.StatusUnauthorized, err.Error())
+		log.Println("Error in validate password: ", err)
+		return
+	}
+
+	err = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		log.Println("WriteMessage error:", err)
+		return
+	}
+
+	// 2つのチャネルを作成
+	xmlCh := make(chan []File)
+	mwfCh := make(chan []File)
+	doneCh := make(chan bool)
+
+	// ファイルを受信して振り分けるゴルーチン
+	go func() {
+		ch := make(chan []File)
+		go receiveMessage(conn, ch)
+
+		// ファイルを種類別に振り分け
+		for files := range ch {
+			xmlFiles := make([]File, 0)
+			mwfFiles := make([]File, 0)
+
+			for _, file := range files {
+				if strings.HasSuffix(strings.ToLower(file.Name), ".xml") {
+					xmlFiles = append(xmlFiles, file)
+				} else if strings.HasSuffix(strings.ToLower(file.Name), ".mwf") {
+					mwfFiles = append(mwfFiles, file)
+				}
+			}
+
+			if len(xmlFiles) > 0 {
+				xmlCh <- xmlFiles
+			}
+			if len(mwfFiles) > 0 {
+				mwfCh <- mwfFiles
+			}
+		}
+		close(xmlCh)
+		close(mwfCh)
+	}()
+
+	// ZIP作成用のバッファとライター
+	zipBuffer := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(zipBuffer)
+
+	// XMLファイルの処理を完了してからMWFファイルを処理
+	go func() {
+		// まずXMLファイルを処理
+		for xmlFiles := range xmlCh {
+			anonymizedFiles, err := processFiles(xmlFiles, password)
+			if err != nil {
+				log.Println("Error processing XML files:", err)
+				continue
+			}
+			if err := addFilesToZip(zipWriter, anonymizedFiles); err != nil {
+				log.Println("Error adding XML files to zip:", err)
+			}
+		}
+		// 次にMWFファイルを処理
+		for mwfFiles := range mwfCh {
+			anonymizedFiles, err := processFiles(mwfFiles, password)
+			if err != nil {
+				log.Println("Error processing MWF files:", err)
+				continue
+			}
+			if err := addFilesToZip(zipWriter, anonymizedFiles); err != nil {
+				log.Println("Error adding MWF files to zip:", err)
+			}
+		}
+
+		zipWriter.Close()
+		doneCh <- true
+	}()
+
+	fmt.Println("====================")
+	// 処理完了を待機
+	<-doneCh
+	sendZipResponse(c, zipBuffer, conn)
+	log.Println("The files have been anonymized")
+}
+*/
+// ZIPファイルにファイルを追加するヘルパー関数
+func addFilesToZip(zipWriter *zip.Writer, files []File) error {
+	for _, file := range files {
+		zipFile, err := zipWriter.Create(file.Name)
+		if err != nil {
+			return fmt.Errorf("%s: %v", errZipCreation, err)
+		}
+		_, err = zipFile.Write(file.Content)
+		if err != nil {
+			return fmt.Errorf("%s: %v", errFileWrite, err)
+		}
+	}
+	return nil
 }
 
 func validatePassword(conn *websocket.Conn) (string, error) {
@@ -200,19 +424,9 @@ func processFile(file File, password string) (File, error) {
 		return File{}, nil // Skip non-MWF and non-XML files
 	}
 
-	patientID, date, err := parseFileName(file.Name)
+	exportID, date, err := parseFileName(file.Name)
 	if err != nil {
 		return File{}, err
-	}
-
-	hashedID := hashPatientID(patientID, password)
-
-	var name, birthtime string
-	if fileType == ".xml" { // xmlの時には名前と生年月日を取得する
-		name, birthtime, err = xml.GetPersonalInfo(file.Content)
-		if err != nil {
-			log.Println("getPersonalInfo error: ", err)
-		}
 	}
 
 	db, err := model.GetDB(os.Getenv("DSN"))
@@ -221,14 +435,30 @@ func processFile(file File, password string) (File, error) {
 	}
 	defer db.Close()
 
-	err = model.Put(db, model.Patient{
-		Id:        patientID,
-		HashedId:  hashedID,
-		Name:      name,
-		Birthtime: birthtime,
-	})
-	if err != nil {
-		return File{}, err
+	var hashedID string
+	if fileType == ".xml" { // xmlの時には名前と生年月日を取得する
+		ecgID, patientID, name, birthtime, err := xml.GetPersonalInfo(file.Content)
+		if err != nil {
+			log.Println("getPersonalInfo error: ", err)
+		}
+		hashedID = hashPatientID(patientID, password)
+
+		err = model.Put(db, model.ECG{
+			Id:        ecgID,
+			PatientID: patientID,
+			HashedId:  hashedID,
+			Name:      name,
+			Birthtime: birthtime,
+			ExportID:  exportID,
+		})
+		if err != nil {
+			return File{}, err
+		}
+	} else if fileType == ".mwf" {
+		hashedID, err = model.GetHashedIDByExportID(db, exportID)
+		if err != nil {
+			log.Println("GetHashedIDByExportID error: ", err)
+		}
 	}
 
 	anonymizedData, err := anonymizeData(file.Content, fileType)
