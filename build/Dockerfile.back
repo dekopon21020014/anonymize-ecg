@@ -3,6 +3,6 @@ FROM golang:1.22.1
 WORKDIR /app
 
 COPY /back ./
-COPY /setup/prod.env /.env
+COPY /build/prod.env /.env
 
 RUN go mod tidy
