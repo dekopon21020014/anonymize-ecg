@@ -2,9 +2,6 @@ services:
   front:
     container_name: front
     image: anonymize-ecg-front:amd64
-    build:
-      context: .
-      dockerfile: ./setup/Dockerfile.front
     platform: linux/amd64
     tty: true
     environment:
@@ -12,15 +9,15 @@ services:
     command: sh -c "./wait-for-back.sh npm run dev"
     ports:
       - "3000:3000"
-    
+
   back:
     container_name: back
     image: anonymize-ecg-back:amd64
-    build:
-      context: .
-      dockerfile: ./setup/Dockerfile.back
     platform: linux/amd64
-    tty: true    
+    tty: true
+    volumes:
+      - /home/${USER}/anonymize-ecg/sqlite:/sqlite
+      - /home/${USER}/anonymize-ecg/log:/app/log
     command: sh -c "go run main.go"
     ports:
       - "8080:8080"
