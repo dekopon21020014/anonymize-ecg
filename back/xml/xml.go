@@ -74,7 +74,7 @@ func Anonymize(xmlData []byte) ([]byte, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(xmlData))
 	encoder := xml.NewEncoder(&buffer)
 
-	var inFamily, inPatientPatient bool
+	var inFamily, inPatientPatient, ecgIDisRecorded bool
 
 	for {
 		token, err := decoder.Token()
@@ -87,7 +87,7 @@ func Anonymize(xmlData []byte) ([]byte, error) {
 
 		switch tok := token.(type) {
 		case xml.StartElement:
-			inFamily, inPatientPatient = handleStartElement(tok, encoder, inFamily, inPatientPatient)
+			inFamily, inPatientPatient, ecgIDisRecorded = handleStartElement(tok, encoder, inFamily, inPatientPatient, ecgIDisRecorded)
 		case xml.EndElement:
 			inFamily, inPatientPatient = handleEndElement(tok, encoder, inFamily, inPatientPatient)
 		case xml.CharData:
@@ -104,7 +104,7 @@ func Anonymize(xmlData []byte) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func handleStartElement(tok xml.StartElement, encoder *xml.Encoder, inFamily, inPatientPatient bool) (bool, bool) {
+func handleStartElement(tok xml.StartElement, encoder *xml.Encoder, inFamily, inPatientPatient, ecgIDisRecorded bool) (bool, bool, bool) {
 	switch tok.Name.Local {
 	case "family":
 		inFamily = true
@@ -115,6 +115,9 @@ func handleStartElement(tok xml.StartElement, encoder *xml.Encoder, inFamily, in
 	case "id":
 		if inPatientPatient {
 			tok.Attr = modifyAttribute(tok.Attr, "extension", "")
+		} else if !ecgIDisRecorded {
+			tok.Attr = modifyAttribute(tok.Attr, "extension", "")
+			ecgIDisRecorded = true
 		}
 	}
 
@@ -122,7 +125,7 @@ func handleStartElement(tok xml.StartElement, encoder *xml.Encoder, inFamily, in
 	tok.Attr = removeNamespace(tok.Attr)
 	encoder.EncodeToken(tok)
 
-	return inFamily, inPatientPatient
+	return inFamily, inPatientPatient, ecgIDisRecorded
 }
 
 func handleEndElement(tok xml.EndElement, encoder *xml.Encoder, inFamily, inPatientPatient bool) (bool, bool) {
